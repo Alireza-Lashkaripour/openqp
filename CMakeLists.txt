@@ -16,6 +16,7 @@ if(ENABLE_MPI)
     message(STATUS "MPI support is enabled.")
 endif()
 
+
 option(BUILD_SHARED_LIBS "Enable shared build"               ON)
 
 option(BUILD_TESTING     "Enable some simple tests"          ON)

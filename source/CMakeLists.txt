@@ -31,7 +31,6 @@ if(ENABLE_MPI)
     target_compile_definitions(oqp PRIVATE ENABLE_MPI)
 endif()
 target_link_directories(oqp PUBLIC ${CMAKE_BINARY_DIR}/external/libxc/src/libxc-build-${CMAKE_Fortran_COMPILER_ID})
-
 if(USE_LIBINT)
   target_compile_definitions(oqp PRIVATE OQP_LIBINT_ENABLE)
   add_dependencies(oqp libint2)

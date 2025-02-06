@@ -1,0 +1,2 @@
+[console_scripts]
+openqp_test = pyoqp.oqp.pyoqp:main

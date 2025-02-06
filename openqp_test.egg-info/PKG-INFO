@@ -1,0 +1,16 @@
+Metadata-Version: 2.2
+Name: openqp_test
+Version: 0.1.0
+Summary: OpenQP test with scikit-build
+Author: Your Name
+Requires-Python: >=3.7
+License-File: LICENSE
+Requires-Dist: numpy>=1.20.0
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: libdlfind>=0.0.3
+Requires-Dist: cffi>=1.16.0
+Requires-Dist: mpi4py>=4.0.0
+Dynamic: author
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
