@@ -969,8 +969,8 @@ contains
 
    ! Calculate spin expectation values
      nsocc = noca - nocb
-     dum0 = 0.25_dp*nsocc*(nsocc-2)
-     dum1 = nocb+1
+     dum0 = 0.25_dp * REAL(nsocc * (nsocc-2), kind=dp)
+     dum1 = REAL(nocb+1, kind=dp)
 
    ! Symmetric matrix scr1 = Smat*Dmat_a*Smat
      dmat_t = dmat_a + ta
