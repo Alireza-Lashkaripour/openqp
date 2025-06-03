@@ -53,7 +53,7 @@ contains
     real(kind=dp), allocatable :: ab2_mo(:,:), scr3(:,:)
     real(kind=dp), allocatable :: eex(:), spin_square(:)
     real(kind=dp), allocatable :: amb(:,:), &
-                                  apb(:,:)
+                                  apb(:,:), a_tot(:,:)
     real(kind=dp), allocatable, target :: vl(:), vr(:)
     real(kind=dp), pointer :: vl_p(:,:), vr_p(:,:)
     real(kind=dp), allocatable :: xm(:)
@@ -190,6 +190,7 @@ contains
              eex(mxvec), &
              spin_square(nstates), &
              apb(mxvec,mxvec), &
+             a_tot(mxvec,mxvec), &
              amb(mxvec,mxvec), &
              for_trnsf_b_vec(mxvec,mxvec), & !
              dip(3,nstates,nstates), &
@@ -270,16 +271,26 @@ contains
       call unpack_matrix(scr1t,fb)
     end if
 
+
+
   ! Construct TD trial vector
     call inivec(mo_energy_a,mo_energy_b,bvec_mo,xm, &
                 nocca,noccb,nvec)
-
     ist = 1
     istart = 1
     iend = nvec
     iter = 0
     mxiter = infos%control%maxit_dav
     ierr = 0
+    bvec_mo=0
+    
+    if (dbgamat) then 
+       do i=1, nvec
+         do j=1,nvec
+           if(i==j) bvec_mo(i,j)=1 
+         end do
+       end do
+    end if 
 
     do iter = 1, mxiter
       nv = iend-ist+1
@@ -310,6 +321,7 @@ contains
         iv = ivec-ist+1
   !     Product (A-B)*X
         call mntoia(ab2(:,:,iv),ab2_mo(:,ivec),mo_a,mo_b,nocca,noccb)
+        a_tot(:,iv) = ab2_mo(:,ivec)
         if (roref) then
           call iatogen(bvec_mo(:,ivec),abxc,nocca,noccb)
 
