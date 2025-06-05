@@ -58,7 +58,7 @@ contains
     real(kind=dp), allocatable :: wrk1(:,:), qvec(:,:)
     real(kind=dp), allocatable :: amo(:,:), wrk2(:,:)
     real(kind=dp), allocatable :: squared_S(:)
-    real(kind=dp), allocatable :: amb(:,:), apb(:,:)
+    real(kind=dp), allocatable :: amb(:,:), apb(:,:), a_tot(:,:) ! For Debugging 
     real(kind=dp), allocatable, target :: vl(:), vr(:)
     real(kind=dp), pointer :: vl_p(:,:), vr_p(:,:)
     real(kind=dp), allocatable :: xm(:), scr(:)
@@ -85,6 +85,10 @@ contains
     integer :: maxvec, mrst, nstates, target_state
     logical :: roref = .false.
     logical :: debug_mode
+    ! For printing Full-A matrix 
+    integer :: i, j
+    logical, parameter :: dbgamat2 = .true.
+    integer :: col0, col1, jblk, block_size
 
     type(int2_compute_t) :: int2_driver
     type(int2_mrsf_data_t), target :: int2_data_st
@@ -122,7 +126,7 @@ contains
     target_state = infos%tddft%target_state
     maxvec = infos%tddft%maxvec
     cnvtol = infos%tddft%cnvtol
-!   infos%tddft%debug_mode = .True.
+!    infos%tddft%debug_mode = .True.
     debug_mode = infos%tddft%debug_mode
 
     mol_mult = infos%mol_prop%mult
@@ -164,6 +168,12 @@ contains
 
     infos%tddft%nstate = nstates
     nvec = min(max(nstates,6), mxvec)
+        
+    if (dbgamat2) then 
+            mxvec = xvec_dim
+            nvec  = xvec_dim
+    !        nmax  = xvec_dim
+    end if
 
     call infos%dat%remove_records(tags_alloc)
 
@@ -204,6 +214,7 @@ contains
              amo(xvec_dim,mxvec), &
              EEX(mxvec), &
              squared_S(nstates), &
+             a_tot(mxvec,mxvec), & ! For Debugging 
              APB(mxvec,mxvec), &
              AMB(mxvec,mxvec), &
              VR(mxvec*mxvec), &
@@ -330,6 +341,15 @@ contains
     iter = 0
     mxiter = infos%control%maxit_dav
     ierr = 0
+  ! For Debugging
+    if (dbgamat2) then
+       bvec_mo=0
+       do i=1, nvec
+          do j=1,nvec
+             if(i==j) bvec_mo(i,j)=1 
+          end do
+       end do
+    end if 
 
     do iter = 1, mxiter
       nv = iend-ist+1
@@ -426,6 +446,11 @@ contains
 
           call mntoia(int2_data_q%amb(:,:,iv,1), amo(:,ivec), mo_a, mo_b, noccb, nocca)
 
+          ! For Debugging
+          if (dbgamat2) then
+             a_tot(:,iv) = amo(:,ivec)
+          end if 
+
           ! Z(I+,A-)
           call iatogen(bvec_mo(:,ivec),wrk1,noccb,nocca)
 
@@ -450,6 +475,29 @@ contains
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
       call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+      block_size = 10
+      if (dbgamat2) then
+        write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
+        do col0 = 1, nvec, block_size
+          col1 = min(col0+block_size-1, nvec)
+          write(iw,'(/,11X)', advance='no')     
+          do jblk = col0, col1
+            write(iw,'(I11)', advance='no') jblk
+          end do
+          write(iw,*)                          
+          do i = 1, nvec
+            write(iw,'(4X,I4,2X)', advance='no') i
+            do jblk = col0, col1
+              write(iw,'(F11.7,1X)', advance='no') apb(i,jblk)
+            end do
+            write(iw,*)                       
+          end do
+          write(iw,*)                        
+        end do
+        call flush(iw)
+      end if      
+
+
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)
       call rpaechk(eex,nvec,nstates,imax,tamm_dancoff=.true.)
