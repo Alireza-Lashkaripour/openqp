@@ -86,9 +86,12 @@ contains
     logical :: roref = .false.
     logical :: debug_mode
     ! For printing Full-A matrix 
-    integer :: i, j
     logical, parameter :: dbgamat2 = .true.
+    logical, parameter :: amat_rep2 = .true.
+    integer :: i, j, ij
     integer :: col0, col1, jblk, block_size
+    integer, parameter :: i0 = 2, j0 = 2
+    real(kind=dp), parameter :: NEWVAL = 0.1234567_dp 
 
     type(int2_compute_t) :: int2_driver
     type(int2_mrsf_data_t), target :: int2_data_st
@@ -475,6 +478,12 @@ contains
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
       call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+      if (amat_rep2) then
+              amb(i0, j0) = NEWVAL
+              amb(j0, i0) = NEWVAL
+              apb(i0, j0) = NEWVAL
+              apb(j0, i0) = NEWVAL
+      end if 
       block_size = 10
       if (dbgamat2) then
         write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec

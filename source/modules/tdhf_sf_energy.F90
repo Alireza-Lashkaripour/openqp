@@ -86,9 +86,14 @@ contains
     logical :: dft
     integer :: scf_type, mol_mult
     ! For printing A matrix 
-    integer :: i, j
     logical, parameter :: dbgamat = .true.   ! Debug option for full A matrix 
+    logical, parameter :: amat_rep = .true.
     integer :: col0, col1, jblk, block_size
+    integer :: i, j, ij
+    integer, parameter :: i0 = 7, j0 = 7
+    real(kind=dp), parameter :: NEWVAL = 0.123456_dp
+!    integer, allocatable :: chosen(:), new_trans(:,:)
+!    integer :: num_chosen, idx, origDRF
 
     ! tagarray
     real(kind=dp), contiguous, pointer :: &
@@ -345,6 +350,12 @@ contains
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
       call rparedms(bvec_mo,ab2_mo,ab2_mo,apb,amb,nvec,tamm_dancoff=.true.)
+      if (amat_rep) then
+         amb(i0, j0) = NEWVAL
+         amb(j0, i0) = NEWVAL
+         apb(i0, j0) = NEWVAL
+         apb(j0, i0) = NEWVAL
+      end if 
       block_size = 10
       if (dbgamat) then
         write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
