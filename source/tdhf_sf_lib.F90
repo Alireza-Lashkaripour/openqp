@@ -235,7 +235,7 @@ contains
         trans(ij,2) = j
       end do
     end do
-
+    print *, "Trans in sf:", trans
   end subroutine get_transitions
 
   subroutine print_results(infos, bvec_mo, excitation_energy, &

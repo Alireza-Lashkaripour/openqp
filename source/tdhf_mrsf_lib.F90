@@ -852,8 +852,29 @@ contains
           trans(ij,2) = j
        end do
     end do
-
   end subroutine get_mrsf_transitions
+
+  !> Find the DRF index corresponding to the LUMO→HOMO transition
+  subroutine get_mrsf_lh_transtion(trans, noca, nocb, lh_idx)
+    implicit none
+
+    integer, intent(in)    :: trans(:,:), noca, nocb
+    integer, intent(out)   :: lh_idx
+
+    integer :: i, homo, lumo
+
+    homo   = noca
+    lumo   = nocb + 1
+
+    lh_idx = -1
+    do i = 1, size(trans,1)
+      if (trans(i,2) == lumo .and. trans(i,1) == homo) then
+        lh_idx = i
+        return
+      end if
+    end do
+    print *, "lh_idx: ", lh_idx
+  end subroutine get_mrsf_lh_transtion
 
 !> @details This subroutine transforms Multi-Reference Spin-Flip (MRSF) response vectors
 !>          from a compressed representation to an expanded form. It handles both

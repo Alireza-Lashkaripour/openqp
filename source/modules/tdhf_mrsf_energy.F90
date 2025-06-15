@@ -39,7 +39,8 @@ contains
     use tdhf_mrsf_lib, only: &
       mrinivec, mrsfcbc, mrsfmntoia, mrsfesum, &
       mrsfqroesum, get_mrsf_transitions, &
-      get_mrsf_transition_density
+      get_mrsf_transition_density, &
+      get_mrsf_lh_transtion ! Checking 
     use mathlib, only: orthogonal_transform, orthogonal_transform_sym, &
       unpack_matrix
     use oqp_linalg
@@ -58,7 +59,7 @@ contains
     real(kind=dp), allocatable :: wrk1(:,:), qvec(:,:)
     real(kind=dp), allocatable :: amo(:,:), wrk2(:,:)
     real(kind=dp), allocatable :: squared_S(:)
-    real(kind=dp), allocatable :: amb(:,:), apb(:,:), a_tot(:,:) ! For Debugging 
+    real(kind=dp), allocatable :: amb(:,:), apb(:,:) 
     real(kind=dp), allocatable, target :: vl(:), vr(:)
     real(kind=dp), pointer :: vl_p(:,:), vr_p(:,:)
     real(kind=dp), allocatable :: xm(:), scr(:)
@@ -86,12 +87,16 @@ contains
     logical :: roref = .false.
     logical :: debug_mode
     ! For printing Full-A matrix 
-    logical, parameter :: dbgamat2 = .true.
-    logical, parameter :: amat_rep2 = .true.
+    logical, parameter :: dbgamat2 = .false.
+    logical, parameter :: amat_rep2 = .false.
     integer :: i, j, ij
     integer :: col0, col1, jblk, block_size
     integer, parameter :: i0 = 2, j0 = 2
-    real(kind=dp), parameter :: NEWVAL = 0.1234567_dp 
+    real(kind=dp), parameter :: NEWVAL = -0.5168283 
+    real(kind=dp), allocatable :: a_tot(:,:)
+    integer :: lh_idx
+    real(kind=dp), parameter :: scale = 0.8_dp
+    real(kind=dp) :: original_A_lh_lh, occ_orb, vir_orb
 
     type(int2_compute_t) :: int2_driver
     type(int2_mrsf_data_t), target :: int2_data_st
@@ -173,9 +178,8 @@ contains
     nvec = min(max(nstates,6), mxvec)
         
     if (dbgamat2) then 
-            mxvec = xvec_dim
-            nvec  = xvec_dim
-    !        nmax  = xvec_dim
+       mxvec = xvec_dim
+       nvec  = xvec_dim
     end if
 
     call infos%dat%remove_records(tags_alloc)
@@ -327,7 +331,9 @@ contains
       call orthogonal_transform_sym(nbf, nbf, fock_b, mo_b, nbf, scr)
       call unpack_matrix(scr,fb)
     end if
-
+    ! Checking
+      call get_mrsf_transitions(trans, nocca, noccb, nbf)
+ 
   ! Construct TD trial vector
     if (mrst==1 .or. mrst==3) then
 
@@ -404,7 +410,7 @@ contains
 
         fmrst2 => int2_data_st%f3(:,:,:,:,1) ! ado2v, ado1v, adco1, adco2, ao21v, aco12, agdlr
 
-        ! Scaling factor if triplet
+       ! Scaling factor if triplet
         if (mrst==3) fmrst2(:,1:6,:,:) = -fmrst2(:,1:6,:,:)
 
         ! Spin pair coupling
@@ -478,12 +484,97 @@ contains
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
       call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-      if (amat_rep2) then
-              amb(i0, j0) = NEWVAL
-              amb(j0, i0) = NEWVAL
-              apb(i0, j0) = NEWVAL
-              apb(j0, i0) = NEWVAL
+!      block_size = 10
+!      if (dbgamat2) then
+!        write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
+!        do col0 = 1, nvec, block_size
+!          col1 = min(col0+block_size-1, nvec)
+!          write(iw,'(/,11X)', advance='no')     
+!          do jblk = col0, col1
+!            write(iw,'(I11)', advance='no') jblk
+!          end do
+!          write(iw,*)                          
+!          do i = 1, nvec
+!            write(iw,'(4X,I4,2X)', advance='no') i
+!            do jblk = col0, col1
+!              write(iw,'(F11.7,1X)', advance='no') apb(i,jblk)
+!            end do
+!            write(iw,*)                       
+!          end do
+!          write(iw,*)                        
+!        end do
+!        call flush(iw)
+!       end if
+
+!      call get_lh_transtion(trans, nocca, noccb, lh_idx)
+!      if (lh_idx > 0) then
+!        apb(lh_idx,lh_idx) = apb(lh_idx,lh_idx) * scale
+!        amb(lh_idx,lh_idx) = amb(lh_idx,lh_idx) * scale
+!      end if
+
+      ! find & scale LUMO→HOMO
+      call get_mrsf_lh_transtion(trans, nocca, noccb, lh_idx)
+      print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
+
+!      if (lh_idx > 0) then
+!        print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
+!        apb(lh_idx,lh_idx) = apb(lh_idx,lh_idx) * scale
+!        amb(lh_idx,lh_idx) = amb(lh_idx,lh_idx) * scale
+!        print *, 'post-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
+!      end if
+
+!      if (lh_idx > 0) then
+!          original_A_lh_lh = apb(lh_idx, lh_idx)
+!          
+!          print *, 'AA Successfully scaled transition', lh_idx, ' consistently.'
+!          print *, 'AA Original A value:', original_A_lh_lh
+!          print *, 'AA New A value:     ', apb(lh_idx, lh_idx)
+!      
+!          do ivec = 1, nvec
+!              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (scale - 1.0_dp) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
+!          end do
+!
+!          print *, 'A Successfully scaled transition', lh_idx, ' consistently.'
+!          print *, 'A Original A value:', original_A_lh_lh
+!          print *, 'A New A value:     ', apb(lh_idx, lh_idx)
+! 
+!          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+!      
+!          print *, 'Successfully scaled transition', lh_idx, ' consistently.'
+!          print *, 'Original A value:', original_A_lh_lh
+!          print *, 'New A value:     ', apb(lh_idx, lh_idx)
+!      
+!      end if
+
+      if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
+
+          ! STEP A: Calculate the energy of the HOMO->LUMO transition directly
+          ! from the orbital energy difference, which is the dominant term.
+          occ_orb = trans(lh_idx, 1) ! This is the HOMO (alpha)
+          vir_orb = trans(lh_idx, 2) ! This is the LUMO (beta)
+
+          original_A_lh_lh = fb( INT(vir_orb), INT(vir_orb) ) - fa( INT(occ_orb), INT(occ_orb) )
+
+          ! STEP B: Apply the consistent correction to the sigma vectors (amo).
+          do ivec = 1, nvec
+              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (1.0_dp - scale) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
+          end do
+
+          ! STEP C: Rebuild the subspace matrix with the corrected sigma vectors.
+          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+
+          ! Optional: A print statement to confirm it's working
+          print *, 'iter:', iter, 'Successfully scaled transition', lh_idx, 'with energy', original_A_lh_lh
+      end if
+
+      print *, "iter: ", iter
+      if (iter == 1 .and. amat_rep2) then
+         amb(i0, j0) = NEWVAL
+         amb(j0, i0) = NEWVAL
+         apb(i0, j0) = NEWVAL
+         apb(j0, i0) = NEWVAL
       end if 
+
       block_size = 10
       if (dbgamat2) then
         write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
@@ -533,7 +624,6 @@ contains
 
       ist = novec+1
       iend = nvec
-
     end do
 
     if (iter >= mxiter .and. .not. converged) ierr = -1
