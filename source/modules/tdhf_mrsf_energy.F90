@@ -95,8 +95,12 @@ contains
     real(kind=dp), parameter :: NEWVAL = -0.5168283 
     real(kind=dp), allocatable :: a_tot(:,:)
     integer :: lh_idx
-    real(kind=dp), parameter :: scale = 0.8_dp
+    real(kind=dp), parameter :: scale = 1.163_dp
     real(kind=dp) :: original_A_lh_lh, occ_orb, vir_orb
+    real(kind=dp) :: before_exch, after_exch, new_A_lh_lh
+    logical :: scale_on_MO = .false.
+    logical, parameter :: scale_it = .true. 
+    real(kind=dp) :: corr
 
     type(int2_compute_t) :: int2_driver
     type(int2_mrsf_data_t), target :: int2_data_st
@@ -483,7 +487,7 @@ contains
 
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
-      call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+!      call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
 !      block_size = 10
 !      if (dbgamat2) then
 !        write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
@@ -513,9 +517,6 @@ contains
 !      end if
 
       ! find & scale LUMO→HOMO
-      call get_mrsf_lh_transtion(trans, nocca, noccb, lh_idx)
-      print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
-
 !      if (lh_idx > 0) then
 !        print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
 !        apb(lh_idx,lh_idx) = apb(lh_idx,lh_idx) * scale
@@ -546,26 +547,87 @@ contains
 !      
 !      end if
 
-      if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
+!      if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
+!
+!          ! STEP A: Calculate the energy of the HOMO->LUMO transition directly
+!          ! from the orbital energy difference, which is the dominant term.
+!          occ_orb = trans(lh_idx, 1) ! This is the HOMO (alpha)
+!          vir_orb = trans(lh_idx, 2) ! This is the LUMO (beta)
+!
+!          original_A_lh_lh = fb( INT(vir_orb), INT(vir_orb) ) - fa( INT(occ_orb), INT(occ_orb) )
+!
+!          ! STEP B: Apply the consistent correction to the sigma vectors (amo).
+!          do ivec = 1, nvec
+!              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (scale - 1) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
+!          end do
+!
+!          ! STEP C: Rebuild the subspace matrix with the corrected sigma vectors.
+!          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+!
+!          ! Optional: A print statement to confirm it's working
+!          print *, 'iter:', iter, 'Successfully scaled transition', lh_idx, 'with energy', original_A_lh_lh
+!      end if
+!
+      if (scale_it) then 
 
-          ! STEP A: Calculate the energy of the HOMO->LUMO transition directly
-          ! from the orbital energy difference, which is the dominant term.
-          occ_orb = trans(lh_idx, 1) ! This is the HOMO (alpha)
-          vir_orb = trans(lh_idx, 2) ! This is the LUMO (beta)
+          call get_mrsf_lh_transtion(trans, nocca, noccb, lh_idx)
+          print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
 
-          original_A_lh_lh = fb( INT(vir_orb), INT(vir_orb) ) - fa( INT(occ_orb), INT(occ_orb) )
-
-          ! STEP B: Apply the consistent correction to the sigma vectors (amo).
-          do ivec = 1, nvec
-              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (1.0_dp - scale) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
-          end do
-
-          ! STEP C: Rebuild the subspace matrix with the corrected sigma vectors.
-          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-
-          ! Optional: A print statement to confirm it's working
-          print *, 'iter:', iter, 'Successfully scaled transition', lh_idx, 'with energy', original_A_lh_lh
-      end if
+          if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
+    
+            ! STEP A: pure MO gap
+            occ_orb = trans(lh_idx,1)   ! HOMO
+            vir_orb = trans(lh_idx,2)   ! LUMO
+            original_A_lh_lh = fb(INT(vir_orb),INT(vir_orb)) - &
+                               fa(INT(occ_orb),INT(occ_orb))
+    
+            !--- print BEFORE components ----------------------------------
+            before_exch = apb(lh_idx,lh_idx) - original_A_lh_lh
+            print *, 'iter=', iter, ' LH diag BEFORE:'
+            print *, '  MO gap          =', original_A_lh_lh
+            print *, '  exch/Coulomb    =', before_exch
+    
+            print *, 'bvec_mo(',lh_idx,',1:nvec) =', bvec_mo(lh_idx,1:nvec)
+    
+            !--- compute correction coefficient ---------------------------
+            if (scale_on_MO) then
+              corr = (1 - scale) * original_A_lh_lh
+              print *, '  [branch: MO]    corr = (scale-1)*MO_gap =', corr
+            else
+              corr = (1 - scale) * before_exch
+              print *, '  [branch: exch]  corr = (scale-1)*exch_part =', corr
+            end if
+    
+            ! STEP B: apply correction to σ‐vectors
+            do ivec = 1, nvec
+              amo(lh_idx,ivec) = amo(lh_idx,ivec) + corr * bvec_mo(lh_idx,ivec)
+            end do
+    
+            ! STEP C: rebuild subspace matrices
+    !        call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+    
+            !--- direct patch for exch‐only branch ------------------------
+            if (.not. scale_on_MO) then
+              apb(lh_idx,lh_idx) = original_A_lh_lh + scale * before_exch
+              print *, '  [direct patch] new total A =', apb(lh_idx,lh_idx)
+            end if
+    
+            !--- print AFTER components -----------------------------------
+            new_A_lh_lh = apb(lh_idx,lh_idx)
+            print *, 'iter=', iter, ' LH diag AFTER:'
+            if (scale_on_MO) then
+              print *, '  scaled MO gap   =', original_A_lh_lh*scale
+              after_exch = new_A_lh_lh - original_A_lh_lh*scale
+            else
+              print *, '  MO gap (unchanged)=', original_A_lh_lh
+              after_exch = new_A_lh_lh - original_A_lh_lh
+            end if
+            print *, '  exch/Coulomb    =', after_exch
+            print *, '  total A         =', new_A_lh_lh
+            call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
+    
+          end if  ! lh_idx block
+      end if 
 
       print *, "iter: ", iter
       if (iter == 1 .and. amat_rep2) then
