@@ -95,7 +95,7 @@ contains
     real(kind=dp), parameter :: NEWVAL = -0.5168283 
     real(kind=dp), allocatable :: a_tot(:,:)
     integer :: lh_idx
-    real(kind=dp), parameter :: scale = 1.163_dp
+    real(kind=dp), parameter :: scale = 1.1635_dp
     real(kind=dp) :: original_A_lh_lh, occ_orb, vir_orb
     real(kind=dp) :: before_exch, after_exch, new_A_lh_lh
     logical :: scale_on_MO = .false.
@@ -591,18 +591,23 @@ contains
     
             !--- compute correction coefficient ---------------------------
             if (scale_on_MO) then
-              corr = (1 - scale) * original_A_lh_lh
-              print *, '  [branch: MO]    corr = (scale-1)*MO_gap =', corr
+              corr = (1.0_dp - scale) * original_A_lh_lh
+              print *, '  [branch: MO]    corr = (1-scale)*MO_gap =', corr
             else
-              corr = (1 - scale) * before_exch
-              print *, '  [branch: exch]  corr = (scale-1)*exch_part =', corr
-            end if
-    
-            ! STEP B: apply correction to σ‐vectors
+              ! invert sign when MO gap<0 and exch>0
+              if (original_A_lh_lh < 0.0_dp .and. before_exch > 0.0_dp) then
+                corr = (scale - 1.0_dp) * before_exch
+                print *, '  [branch: exch, inverted] corr = (scale-1)*exch =', corr
+              else
+                corr = (1.0_dp - scale) * before_exch
+                print *, '  [branch: exch] corr = (1-scale)*exch =', corr
+              end if
+            end if   
+
             do ivec = 1, nvec
               amo(lh_idx,ivec) = amo(lh_idx,ivec) + corr * bvec_mo(lh_idx,ivec)
             end do
-    
+
             ! STEP C: rebuild subspace matrices
     !        call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
     
