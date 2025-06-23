@@ -575,26 +575,21 @@ contains
 
           if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
     
-            ! STEP A: pure MO gap
             occ_orb = trans(lh_idx,1)   ! HOMO
             vir_orb = trans(lh_idx,2)   ! LUMO
             original_A_lh_lh = fb(INT(vir_orb),INT(vir_orb)) - &
                                fa(INT(occ_orb),INT(occ_orb))
     
-            !--- print BEFORE components ----------------------------------
             before_exch = apb(lh_idx,lh_idx) - original_A_lh_lh
             print *, 'iter=', iter, ' LH diag BEFORE:'
             print *, '  MO gap          =', original_A_lh_lh
             print *, '  exch/Coulomb    =', before_exch
-    
             print *, 'bvec_mo(',lh_idx,',1:nvec) =', bvec_mo(lh_idx,1:nvec)
     
-            !--- compute correction coefficient ---------------------------
             if (scale_on_MO) then
               corr = (1.0_dp - scale) * original_A_lh_lh
               print *, '  [branch: MO]    corr = (1-scale)*MO_gap =', corr
             else
-              ! invert sign when MO gap<0 and exch>0
               if (original_A_lh_lh < 0.0_dp .and. before_exch > 0.0_dp) then
                 corr = (scale - 1.0_dp) * before_exch
                 print *, '  [branch: exch, inverted] corr = (scale-1)*exch =', corr
@@ -608,16 +603,11 @@ contains
               amo(lh_idx,ivec) = amo(lh_idx,ivec) + corr * bvec_mo(lh_idx,ivec)
             end do
 
-            ! STEP C: rebuild subspace matrices
-    !        call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-    
-            !--- direct patch for exch‐only branch ------------------------
             if (.not. scale_on_MO) then
               apb(lh_idx,lh_idx) = original_A_lh_lh + scale * before_exch
               print *, '  [direct patch] new total A =', apb(lh_idx,lh_idx)
             end if
     
-            !--- print AFTER components -----------------------------------
             new_A_lh_lh = apb(lh_idx,lh_idx)
             print *, 'iter=', iter, ' LH diag AFTER:'
             if (scale_on_MO) then
@@ -631,7 +621,7 @@ contains
             print *, '  total A         =', new_A_lh_lh
             call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
     
-          end if  ! lh_idx block
+          end if  
       end if 
 
       print *, "iter: ", iter

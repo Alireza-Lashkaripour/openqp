@@ -87,11 +87,15 @@ contains
     integer :: scf_type, mol_mult
     ! For printing A matrix 
     logical, parameter :: dbgamat = .true.   ! Debug option for full A matrix 
-    logical, parameter :: amat_rep = .true.
+    logical, parameter :: amat_rep = .false.
     integer :: col0, col1, jblk, block_size
     integer :: i, j, ij
     integer, parameter :: i0 = 7, j0 = 7
     real(kind=dp), parameter :: NEWVAL = 0.123456_dp
+    logical, parameter :: dbgamat_det = .true. 
+    integer       :: occ_orb, vir_orb
+    real(kind=dp) :: mo_val, exc_val
+    real(kind=dp) :: e_occ, e_vir
 !    integer, allocatable :: chosen(:), new_trans(:,:)
 !    integer :: num_chosen, idx, origDRF
 
@@ -377,6 +381,135 @@ contains
         end do
         call flush(iw)
       end if      
+
+!      if (dbgamat_det) then
+!        write(iw,'(/,5x,"--- A decomposition (MO - Exc) (",I5,"×",I5,") ---")') nvec, nvec
+!        do col0 = 1, nvec, block_size
+!          col1 = min(col0+block_size-1, nvec)
+!          ! print column headers
+!          write(iw,'(/,11X)', advance='no')
+!          do jblk = col0, col1
+!            write(iw,'(I11)', advance='no') jblk
+!          end do
+!          write(iw,*)
+!          ! now each row
+!          do i = 1, nvec
+!            write(iw,'(4X,I4,2X)', advance='no') i
+!            do jblk = col0, col1
+!              ! compute MO part only on the diagonal
+!              if (i == jblk) then
+!                occ_orb = trans(i,1)
+!                vir_orb = trans(i,2)
+!              !  mo_val  = fb(vir_orb,vir_orb) - fa(occ_orb,occ_orb)
+!                mo_val  = mo_energy_b(vir_orb) - mo_energy_a(occ_orb)
+!              else
+!                mo_val = 0.0_dp
+!              end if
+!              ! remainder is the exchange part
+!              exc_val = apb(i,jblk) - mo_val
+!              ! print “MO & exchange” in one column
+!              write(iw,'(F11.7,1X,F11.7,2X)', advance='no') mo_val, exc_val
+!            end do
+!            write(iw,*)
+!          end do
+!          write(iw,*)
+!        end do
+!        call flush(iw)
+!      end if
+!
+
+      call get_transitions(trans, nocca, noccb, nbf)
+!
+!      if (dbgamat_det) then
+!        write(iw,'(/,5x,"--- A components (E_occ | E_vir | K_ij) (",I5,"×",I5,") ---")') nvec, nvec
+!        do col0 = 1, nvec, block_size
+!          col1 = min(col0+block_size-1, nvec)
+!      
+!          !── column headers ───────────────────────────────
+!          write(iw,'(/,11X)', advance='no')
+!          do jblk = col0, col1
+!            write(iw,'(I11)', advance='no') jblk
+!          end do
+!          write(iw,*)
+!      
+!          !── each row ─────────────────────────────────────
+!          do i = 1, nvec
+!            write(iw,'(4X,I4,2X)', advance='no') i
+!            do jblk = col0, col1
+!              ! **swap** here
+!              vir_orb = trans(jblk,2)
+!              occ_orb = trans(jblk,1)
+!      
+!              ! now read the true MO energies
+!              e_occ = mo_energy_a(occ_orb)
+!              e_vir = mo_energy_b(vir_orb)
+!      
+!              ! extract the pure coupling
+!              if (i == jblk) then
+!                exc_val = apb(i,i) - (e_vir - e_occ)
+!     !         else
+!      !          exc_val = apb(i,jblk)
+!              end if
+!      
+!              ! print E_occ, E_vir, K_ij
+!              write(iw,'(F11.7,1X,F11.7,1X,F11.7,2X)', advance='no') &
+!                    e_occ, e_vir, exc_val
+!            end do
+!            write(iw,*)
+!          end do
+!      
+!          write(iw,*)
+!        end do
+!        call flush(iw)
+!      end if
+!
+
+      if (dbgamat_det) then
+        write(iw,'(/,5x,"--- A components (E_occ | E_vir | K_ij) (",I5,"×",I5,") ---")') nvec, nvec
+        do col0 = 1, nvec, block_size
+          col1 = min(col0+block_size-1, nvec)
+      
+          !── column headers ───────────────────────────────
+          write(iw,'(/,11X)', advance='no')
+          do jblk = col0, col1
+            write(iw,'(I11)', advance='no') jblk
+          end do
+          write(iw,*)
+      
+          !── each row ─────────────────────────────────────
+          do i = 1, nvec
+            write(iw,'(4X,I4,2X)', advance='no') i
+            do jblk = col0, col1
+      
+              if (i == jblk) then
+                ! diag: real MO energies + coupling
+                occ_orb = trans(i,1)
+                vir_orb = trans(i,2)
+                e_occ   = mo_energy_a(occ_orb)
+                e_vir   = mo_energy_b(vir_orb)
+                exc_val = apb(i,i) - (e_vir - e_occ)
+      
+                write(iw,'(F11.7,1X,F11.7,1X,F11.7)', advance='no') &
+                      e_occ, e_vir, exc_val
+      
+              else
+                ! off-diag: zeros for MO parts, then coupling
+                exc_val = apb(i,jblk)
+      
+                write(iw,'(F11.7,1X,F11.7,1X,F11.7)', advance='no') &
+                      0.0_dp, 0.0_dp, exc_val
+      
+              end if
+      
+            end do
+            write(iw,*)
+          end do
+      
+          write(iw,*)
+        end do
+        call flush(iw)
+      end if
+
 
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)
