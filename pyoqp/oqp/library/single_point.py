@@ -163,11 +163,14 @@ class SinglePoint(Calculator):
         self.scf_type = mol.config['scf']['type']
         self.scf_maxit = mol.config['scf']['maxit']
         self.forced_attempt = mol.config['scf']['forced_attempt']
+        self.alternative_scf = mol.config["scf"]["alternative_scf"]
         self.scf_mult = mol.config['scf']['multiplicity']
         self.init_scf = mol.config['scf']['init_scf']
         self.init_it = mol.config['scf']['init_it']
         self.init_basis = mol.config['scf']['init_basis']
         self.init_library = mol.config['scf']['init_library']
+        self.init_conv =  mol.config['scf']['init_conv']
+        self.conv = mol.config['scf']['conv']
         self.save_molden = mol.config['scf']['save_molden']
         self.td = mol.config['tdhf']['type']
         self.nstate = mol.config['tdhf']['nstate']
@@ -191,10 +194,19 @@ class SinglePoint(Calculator):
 
     def _init_convergence(self):
         init_calc = self.energy_func['hf']
-        init_basis = self.init_basis
-        init_library = self.init_library
         target_basis = self.basis
         target_library = self.library
+        if self.init_basis == 'none':
+            init_basis = target_basis
+            init_library = target_library
+        else :
+            init_basis = self.init_basis
+            init_library = self.init_library
+
+        init_converger = self.mol.config['scf']['init_converger']
+        target_converger = self.mol.config['scf']['soscf_type']
+        self.mol.data.set_scf_soscf_type(init_converger)
+        self.mol.data.set_scf_conv(self.init_conv)
 
         if init_basis:
             self.mol.config['input']['basis'] = init_basis
@@ -257,9 +269,11 @@ class SinglePoint(Calculator):
         # set parameters back to normal scf
         self.mol.config['input']['basis'] = target_basis
         self.mol.config['input']['functional'] = self.functional
+        self.mol.data.set_scf_soscf_type(target_converger)
         self.mol.data.set_dft_functional(self.functional)
         self.mol.data.set_scf_type(self.scf_type)
         self.mol.data.set_scf_maxit(self.scf_maxit)
+        self.mol.data.set_scf_conv(self.conv)
         self.mol.data.set_mol_multiplicity(self.scf_mult)
         self._project_basis()
 #        oqp.library.update_guess(self.mol)
@@ -300,6 +314,31 @@ class SinglePoint(Calculator):
                 i += 1
         return final_filename
 
+    # IXCORE for XAS (X-ray absorption spectroscopy)
+    # Fock matrix is in AO here, so we need to shift it in Fortran after transform it into MO
+    def ixcore_shift(self):
+        from oqp import ffi
+        ixcore= self.mol.config["tdhf"]["ixcore"]
+        
+        if ixcore == "-1":  # if default
+            # Pass pointer 
+            ixcore_array = np.array([-1], dtype=np.int32)
+            self.mol.data['ixcore'] = ffi.cast("int32_t *", ffi.from_buffer(ixcore_array))
+            self.mol.data['ixcore_len'] = ixcore_array.size
+            return
+
+        # Pass pointer to Fortran via C
+        ixcore_array = np.array(ixcore.split(','), dtype=np.int32)
+        self.mol.data['ixcore'] = ffi.cast("int32_t *", ffi.from_buffer(ixcore_array))
+        self.mol.data['ixcore_len'] = ixcore_array.size
+
+        # shift MO energies 
+        noccB = self.mol.data['nelec_B']
+        tmp = self.mol.data["OQP::E_MO_A"]
+        for i in range(noccB+1):  # up to HOMO-1
+            if i not in ixcore_array:
+                tmp[i-1] = -100000  # shift the MO energy down
+
     def energy(self, do_init_scf=True):
         # check method
         if self.method not in ['hf', 'tdhf']:
@@ -307,6 +346,9 @@ class SinglePoint(Calculator):
 
         # compute reference
         ref_energy = self.reference(do_init_scf=do_init_scf)
+
+        # ixcore
+        self.ixcore_shift()
 
         # compute excitations
         if self.method == 'tdhf':
@@ -316,6 +358,20 @@ class SinglePoint(Calculator):
 
         return energies
 
+    def swapmo(self):
+        # swap MO energy and AO coefficient depending on user's request
+        swapmo= self.mol.config["guess"]["swapmo"]
+        if swapmo:   # if not default (empty)
+            swapmo_array = [int(x.strip()) for x in swapmo.split(',')]
+
+            # Initial MO energy and coefficient
+            og_val = self.mol.data["OQP::E_MO_A"]
+            og_vec = self.mol.data["OQP::VEC_MO_A"]
+            # It only takes pairs. If it is not pair, it will be ignored.
+            for i, j in zip(swapmo_array[::2], swapmo_array[1::2]):
+                og_val[[i-1, j-1]] = og_val[[j-1, i-1]]
+                og_vec[[i-1, j-1]] = og_vec[[j-1, i-1]]
+
     def reference(self, do_init_scf=True):
         dump_log(self.mol, title='PyOQP: Entering Electronic Energy Calculation', section='input')
 
@@ -324,6 +380,8 @@ class SinglePoint(Calculator):
             self._init_convergence()
         else:
             self._prep_guess()
+
+        self.swapmo()
 
         scf_flag = False
         for itr in range(self.forced_attempt):
@@ -339,8 +397,19 @@ class SinglePoint(Calculator):
             else:
                 dump_log(self.mol, title='PyOQP: SCF energy is not converged after %s attempts' % (itr + 1), section='')
 
+
         if not scf_flag:
             dump_log(self.mol, title='PyOQP: SCF energy is not converged', section='end')
+
+            if self.alternative_scf:
+                dump_log(self.mol, title='PyOQP: Enable the SOSCF flag in SCF to improve convergence.', section='input')
+                self.mol.data.set_scf_soscf_type(1)
+                self.scf()
+                energy = [self.mol.mol_energy.energy]
+                scf_flag = self.mol.mol_energy.SCF_converged
+                if scf_flag:
+                    dump_log(self.mol, title='PyOQP: SCF energy is converged after %s attempts' % (itr + 1), section='')
+
 
             if self.exception is True:
                 raise SCFnotConverged()

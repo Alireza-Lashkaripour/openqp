@@ -61,11 +61,12 @@ OQP_CONFIG_SCHEMA = {
         'file2': {'type': str, 'default': ''},
         'save_mol': {'type': bool, 'default': 'False'},
         'continue_geom': {'type': bool, 'default': 'False'},
+        'swapmo': {'type' : string, 'default' : ''},
     },
     'scf': {
         'type': {'type': string, 'default': 'rhf'},
         'maxit': {'type': int, 'default': '30'},
-        'forced_attempt' : {'type': int, 'default': '1'},
+        'forced_attempt': {'type': int, 'default': '1'},
         'maxdiis': {'type': int, 'default': '7'},
         'diis_reset_mod': {'type': int, 'default': '10'},
         'diis_reset_conv': {'type': float, 'default': '0.005'},
@@ -85,10 +86,18 @@ OQP_CONFIG_SCHEMA = {
         'conv': {'type': float, 'default': '1.0e-6'},
         'incremental': {'type': bool, 'default': 'True'},
         'init_scf': {'type': string, 'default': 'no'},
-        'init_basis': {'type': string, 'default': ''},
+        'init_basis': {'type': string, 'default': 'none'},
         'init_library': {'type': string, 'default': ''},
-        'init_it': {'type': int, 'default': '0'},
+        'init_it': {'type': int, 'default': '15'},
+        'init_conv': {'type': float, 'default': '0.001'}, 
+        'init_converger': {'type': int, 'default': '0'},
         'save_molden': {'type': bool, 'default': 'True'},
+        'rstctmo': {'type': bool, 'default': 'False'},
+        'soscf_type': {'type': int, 'default': '0'},
+        'soscf_reset_mod': {'type': int, 'default': '0'},
+        'soscf_lvl_shift': {'type': float, 'default': '0'},
+        'alternative_scf': {'type': bool, 'default': 'False'},
+        'verbose': {'type': int, 'default': '1'},
     },
     'dftgrid': {
         'hfscale': {'type': float, 'default': '-1.0'},
@@ -123,6 +132,7 @@ OQP_CONFIG_SCHEMA = {
         'spc_ovov': {'type': float, 'default': '-1.0'},
         'spc_coov': {'type': float, 'default': '-1.0'},
         'conf_threshold': {'type': float, 'default': '5.0e-2'},
+        'ixcore': {'type' : string, 'default' : '-1'},
     },
     'properties': {
         'scf_prop': {'type': sarray, 'default': 'el_mom,mulliken'},
@@ -245,6 +255,11 @@ class OQPData:
             "conv": "set_scf_conv",
             "incremental": "set_scf_incremental",
             "active_basis": "set_scf_active_basis",
+            "rstctmo" : "set_scf_rstctmo",
+            "soscf_type": "set_scf_soscf_type",
+            "soscf_reset_mod": "set_scf_soscf_reset_mod",
+            "soscf_lvl_shift": "set_soscf_lvl_shift",
+            "verbose": "set_scf_verbose",
         },
         "dftgrid": {
             "rad_type": "set_dftgrid_rad_type",
@@ -278,6 +293,7 @@ class OQPData:
             "spc_ovov": "set_tdhf_spc_ovov",
             "spc_coov": "set_tdhf_spc_coov",
             "conf_threshold": "set_conf_threshold",
+#            "ixcore" : "set_tdhf_ixcore",
         },
     }
     _typemap = [np.void,
@@ -315,6 +331,8 @@ class OQPData:
         if key in dir(self._data.mol_energy):
             return getattr(self._data.mol_energy, key)
 
+        if key in dir(self._data.tddft):
+            return getattr(self._data.tddft, key)
         if key in dir(self._data.mpiinfo):
             return getattr(self._data.mpiinfo, key)
         if key in dir(self._data.control):
@@ -365,6 +383,9 @@ class OQPData:
         if key in dir(self._data.mpiinfo):
             setattr(self._data.mpiinfo, key, value)
 
+        if key in dir(self._data.tddft):
+            setattr(self._data.tddft, key, value)
+
         if key in dir(self._data.elshell):
             setattr(self._data.elshell, key, value)
             return
@@ -373,6 +394,11 @@ class OQPData:
             _value = value
         elif isinstance(value, str):
             _value = np.frombuffer(np.bytes_(value), dtype=np.dtype('S1'))
+        elif isinstance(value, ffi.CData):
+            try:
+                _value = np.frombuffer(ffi.buffer(value), dtype=np.int32)
+            except Exception as e:
+                raise TypeError("CData pointer is not buffer-backed or dtype mismatch") from e            
         else:
             _value = np.array(value)
 
@@ -469,21 +495,25 @@ class OQPData:
         """Set MOM turn on criteria of DIIS error """
         self._data.control.mom_switch = mom_switch
 
-    def set_scf_pfon(self, pfon): 
+    def set_scf_pfon(self, pfon):
         """pfon """
-        self._data.control.pfon = pfon 
+        self._data.control.pfon = pfon
 
-    def set_scf_pfon_start_temp(self, pfon_start_temp): 
+    def set_scf_pfon_start_temp(self, pfon_start_temp):
         """pfon_start_temp """
-        self._data.control.pfon_start_temp = pfon_start_temp 
+        self._data.control.pfon_start_temp = pfon_start_temp
 
-    def set_scf_pfon_cooling_rate(self, pfon_cooling_rate): 
+    def set_scf_pfon_cooling_rate(self, pfon_cooling_rate):
         """pfon_cooling_rate """
         self._data.control.pfon_cooling_rate = pfon_cooling_rate
 
-    def set_scf_pfon_nsmear(self, pfon_nsmear): 
+    def set_scf_pfon_nsmear(self, pfon_nsmear):
         """pfon_cooling_rate """
         self._data.control.pfon_nsmear = pfon_nsmear
+
+    def set_scf_rstctmo(self, rstctmo): 
+        """restrict MO """
+        self._data.control.rstctmo = rstctmo
 
     def set_scf_active_basis(self, active_basis):
         """Select basis set: 0 => info%basis
@@ -497,6 +527,33 @@ class OQPData:
     def set_scf_incremental(self, flag):
         """Set incremental Fock matrix build"""
         self._data.control.scf_incremental = 1 if flag else 0
+
+    def set_scf_soscf_type(self, soscf_type):
+        """Set SOSCF type for SCF convergence:
+            soscf_type (int): SOSCF algorithm type
+                0: SOSCF disabled
+                1: SOSCF only
+                2: SOSCF+DIIS combined mode
+        """
+        self._data.control.soscf_type = soscf_type
+
+    def set_soscf_lvl_shift(self, soscf_lvl_shift):
+        """Reset the orbital Hessian. If it is zero, we don't reset by default.
+        """
+        self._data.control.soscf_lvl_shift = soscf_lvl_shift
+
+    def set_scf_soscf_reset_mod(self, soscf_reset_mod):
+        """Set the SOSCF Hessian reset mode.
+        Parameters:
+            soscf_reset_mod (int):
+                0      – Disable Hessian reset.
+                >0     – Reset the Hessian at the specified SCF iteration.
+        """
+        self._data.control.soscf_reset_mod = soscf_reset_mod
+
+    def set_scf_verbose(self, verbose):
+        """Controls output verbosity"""
+        self._data.control.verbose = verbose
 
     def set_tdhf_type(self, td_type):
         """Handle td-dft calculation type"""
