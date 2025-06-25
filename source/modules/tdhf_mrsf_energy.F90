@@ -96,7 +96,8 @@ contains
     real(kind=dp), allocatable :: a_tot(:,:)
     integer :: lh_idx
     real(kind=dp), parameter :: scale = 1.1635_dp
-    real(kind=dp) :: original_A_lh_lh, occ_orb, vir_orb
+    real(kind=dp) :: original_A_lh_lh
+    integer :: occ_orb, vir_orb
     real(kind=dp) :: before_exch, after_exch, new_A_lh_lh
     logical :: scale_on_MO = .false.
     logical, parameter :: scale_it = .true. 
@@ -487,87 +488,7 @@ contains
 
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
-!      call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-!      block_size = 10
-!      if (dbgamat2) then
-!        write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
-!        do col0 = 1, nvec, block_size
-!          col1 = min(col0+block_size-1, nvec)
-!          write(iw,'(/,11X)', advance='no')     
-!          do jblk = col0, col1
-!            write(iw,'(I11)', advance='no') jblk
-!          end do
-!          write(iw,*)                          
-!          do i = 1, nvec
-!            write(iw,'(4X,I4,2X)', advance='no') i
-!            do jblk = col0, col1
-!              write(iw,'(F11.7,1X)', advance='no') apb(i,jblk)
-!            end do
-!            write(iw,*)                       
-!          end do
-!          write(iw,*)                        
-!        end do
-!        call flush(iw)
-!       end if
 
-!      call get_lh_transtion(trans, nocca, noccb, lh_idx)
-!      if (lh_idx > 0) then
-!        apb(lh_idx,lh_idx) = apb(lh_idx,lh_idx) * scale
-!        amb(lh_idx,lh_idx) = amb(lh_idx,lh_idx) * scale
-!      end if
-
-      ! find & scale LUMO→HOMO
-!      if (lh_idx > 0) then
-!        print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
-!        apb(lh_idx,lh_idx) = apb(lh_idx,lh_idx) * scale
-!        amb(lh_idx,lh_idx) = amb(lh_idx,lh_idx) * scale
-!        print *, 'post-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
-!      end if
-
-!      if (lh_idx > 0) then
-!          original_A_lh_lh = apb(lh_idx, lh_idx)
-!          
-!          print *, 'AA Successfully scaled transition', lh_idx, ' consistently.'
-!          print *, 'AA Original A value:', original_A_lh_lh
-!          print *, 'AA New A value:     ', apb(lh_idx, lh_idx)
-!      
-!          do ivec = 1, nvec
-!              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (scale - 1.0_dp) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
-!          end do
-!
-!          print *, 'A Successfully scaled transition', lh_idx, ' consistently.'
-!          print *, 'A Original A value:', original_A_lh_lh
-!          print *, 'A New A value:     ', apb(lh_idx, lh_idx)
-! 
-!          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-!      
-!          print *, 'Successfully scaled transition', lh_idx, ' consistently.'
-!          print *, 'Original A value:', original_A_lh_lh
-!          print *, 'New A value:     ', apb(lh_idx, lh_idx)
-!      
-!      end if
-
-!      if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
-!
-!          ! STEP A: Calculate the energy of the HOMO->LUMO transition directly
-!          ! from the orbital energy difference, which is the dominant term.
-!          occ_orb = trans(lh_idx, 1) ! This is the HOMO (alpha)
-!          vir_orb = trans(lh_idx, 2) ! This is the LUMO (beta)
-!
-!          original_A_lh_lh = fb( INT(vir_orb), INT(vir_orb) ) - fa( INT(occ_orb), INT(occ_orb) )
-!
-!          ! STEP B: Apply the consistent correction to the sigma vectors (amo).
-!          do ivec = 1, nvec
-!              amo(lh_idx, ivec) = amo(lh_idx, ivec) + (scale - 1) * original_A_lh_lh * bvec_mo(lh_idx, ivec)
-!          end do
-!
-!          ! STEP C: Rebuild the subspace matrix with the corrected sigma vectors.
-!          call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-!
-!          ! Optional: A print statement to confirm it's working
-!          print *, 'iter:', iter, 'Successfully scaled transition', lh_idx, 'with energy', original_A_lh_lh
-!      end if
-!
       if (scale_it) then 
 
           call get_mrsf_lh_transtion(trans, nocca, noccb, lh_idx)
@@ -577,15 +498,27 @@ contains
     
             occ_orb = trans(lh_idx,1)   ! HOMO
             vir_orb = trans(lh_idx,2)   ! LUMO
-            original_A_lh_lh = fb(INT(vir_orb),INT(vir_orb)) - &
-                               fa(INT(occ_orb),INT(occ_orb))
+            original_A_lh_lh = fb((vir_orb),(vir_orb)) - &
+                               fa((occ_orb),(occ_orb))
     
+!            original_A_lh_lh = mo_energy_b(vir_orb) - &
+!                               mo_energy_a(occ_orb)
+
             before_exch = apb(lh_idx,lh_idx) - original_A_lh_lh
             print *, 'iter=', iter, ' LH diag BEFORE:'
-            print *, '  MO gap          =', original_A_lh_lh
+            print *, '  F gap          =', original_A_lh_lh
             print *, '  exch/Coulomb    =', before_exch
             print *, 'bvec_mo(',lh_idx,',1:nvec) =', bvec_mo(lh_idx,1:nvec)
-    
+            print *, 'apb: ', apb(lh_idx,lh_idx)    
+            print *, 'Occ_orb: ', occ_orb
+            print *, 'Vir_orb: ', vir_orb
+            print *, 'LUMO: ', mo_energy_b(vir_orb)
+            print *, 'HOMO: ', mo_energy_a(occ_orb)  
+            print *, 'MO gap: ', mo_energy_b(vir_orb) - mo_energy_a(occ_orb)
+            print *, "full A_diag        =", apb(lh_idx,lh_idx)
+            print *, "2-e (amb)         =", amb(lh_idx,lh_idx)
+            print *, "1-e (MO gap)      =", original_A_lh_lh
+
             if (scale_on_MO) then
               corr = (1.0_dp - scale) * original_A_lh_lh
               print *, '  [branch: MO]    corr = (1-scale)*MO_gap =', corr
@@ -619,8 +552,34 @@ contains
             end if
             print *, '  exch/Coulomb    =', after_exch
             print *, '  total A         =', new_A_lh_lh
+            print *, 'apb: ', apb(lh_idx,lh_idx)    
+            print *, 'Occ_orb: ', occ_orb
+            print *, 'Vir_orb: ', vir_orb
+            print *, 'LUMO: ', mo_energy_b(vir_orb)
+            print *, 'HOMO: ', mo_energy_a(occ_orb)  
+            print *, 'MO gap: ', mo_energy_b(vir_orb) - mo_energy_a(occ_orb)
+            print *, "full A_diag        =", apb(lh_idx,lh_idx)
+            print *, "2-e (amb)         =", amb(lh_idx,lh_idx)
+            print *, "1-e (MO gap)      =", original_A_lh_lh
+
+
+
             call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
     
+            print *, 'iter=', iter, ' LH diag BEFORE:'                        
+            print *, '  F gap          =', original_A_lh_lh                   
+            print *, '  exch/Coulomb    =', before_exch                       
+            print *, 'bvec_mo(',lh_idx,',1:nvec) =', bvec_mo(lh_idx,1:nvec)   
+            print *, 'apb: ', apb(lh_idx,lh_idx)                              
+            print *, 'Occ_orb: ', occ_orb                                     
+            print *, 'Vir_orb: ', vir_orb                                     
+            print *, 'LUMO: ', mo_energy_b(vir_orb)                           
+            print *, 'HOMO: ', mo_energy_a(occ_orb)                           
+            print *, 'MO gap: ', mo_energy_b(vir_orb) - mo_energy_a(occ_orb)  
+            print *, "full A_diag        =", apb(lh_idx,lh_idx)               
+            print *, "2-e (amb)         =", amb(lh_idx,lh_idx)                
+            print *, "1-e (MO gap)      =", original_A_lh_lh                  
+                                                                              
           end if  
       end if 
 
@@ -653,7 +612,6 @@ contains
         end do
         call flush(iw)
       end if      
-
 
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)
