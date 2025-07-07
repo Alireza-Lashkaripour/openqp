@@ -143,6 +143,9 @@ module types
     real(c_double) :: cnvtol = 1.0e-10_dp  !< convergence tolerance in the iterative TD-DFT step
     real(c_double) :: zvconv = 1.0e-10_dp  !< convergence tolerance in Z-vector equation
     logical(c_bool) :: debug_mode = .false.!< Debug print
+    logical(c_bool) :: dbgamat = .false.   !< Prints Full A Matrix. 
+    logical(c_bool) :: clh_flag = .false.  !< Scales Exchange Elements in MRSF A matrix for LUMO-->HOMO trans by Clh
+    real(c_double) :: clh_scale = 1.0_dp   !< Clh value
     logical(c_bool) :: tda = .false.       !< switch for Tamm-Dancoff approximation
     integer(c_int64_t) :: tlf = 2          !< truncated Leibniz formula (TLF) approximation algorithm,
                                            !< 0   - zeroth-order (scales as O(n^2)) DO NOT WORK

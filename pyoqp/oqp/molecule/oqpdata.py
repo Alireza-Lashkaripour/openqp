@@ -133,6 +133,9 @@ OQP_CONFIG_SCHEMA = {
         'spc_coov': {'type': float, 'default': '-1.0'},
         'conf_threshold': {'type': float, 'default': '5.0e-2'},
         'ixcore': {'type' : string, 'default' : '-1'},
+        'dbgamat': {'type': bool, 'default': 'False'},
+        'clh_flag': {'type': bool, 'default': 'False'},
+        'clh_scale': {'type': float, 'default': '1.0'}
     },
     'properties': {
         'scf_prop': {'type': sarray, 'default': 'el_mom,mulliken'},
@@ -293,6 +296,9 @@ class OQPData:
             "spc_ovov": "set_tdhf_spc_ovov",
             "spc_coov": "set_tdhf_spc_coov",
             "conf_threshold": "set_conf_threshold",
+            "dbgamat": "set_tdhf_dbgamat",
+            "clh_flag": "set_tdhf_clh_flag",
+            "clh_scale": "set_tdhf_clh_scale"
 #            "ixcore" : "set_tdhf_ixcore",
         },
     }
@@ -623,6 +629,18 @@ class OQPData:
     def set_tdhf_spc_coov(self, spc_coov):
         """Set CO-OV spin-pair coupling parameter (C=closed, O=open, V=virtual MOs) in MRSF calculation"""
         self._data.tddft.spc_coov = spc_coov
+
+    def set_tdhf_dbgamat(self, dbgamat):
+        """Debugging Option For Printing Full A matrix"""
+        self._data.tddft.dbgamat = dbgamat
+
+    def set_tdhf_clh_flag(self, clh_flag):
+        """Scales Exchange Elements in MRSF A matrix for LUMO-->HOMO trans by Clh"""
+        self._data.tddft.clh_flag = clh_flag
+
+    def set_tdhf_clh_scale(self, clh_scale):
+        """Clh scale """
+        self._data.tddft.clh_scale = clh_scale
 
     def set_conf_threshold(self, conf_threshold):
         """Set configuration printout option"""

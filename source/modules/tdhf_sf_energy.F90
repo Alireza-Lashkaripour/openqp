@@ -53,7 +53,7 @@ contains
     real(kind=dp), allocatable :: ab2_mo(:,:), scr3(:,:)
     real(kind=dp), allocatable :: eex(:), spin_square(:)
     real(kind=dp), allocatable :: amb(:,:), &
-                                  apb(:,:), a_tot(:,:) ! For debagging
+                                  apb(:,:), a_tot(:,:) 
     real(kind=dp), allocatable, target :: vl(:), vr(:)
     real(kind=dp), pointer :: vl_p(:,:), vr_p(:,:)
     real(kind=dp), allocatable :: xm(:)
@@ -85,19 +85,14 @@ contains
 
     logical :: dft
     integer :: scf_type, mol_mult
-    ! For printing A matrix 
-    logical, parameter :: dbgamat = .true.   ! Debug option for full A matrix 
-    logical, parameter :: amat_rep = .false.
+    ! Debugging Option For Printing Full A Matrix  
+    logical :: dbgamat     
     integer :: col0, col1, jblk, block_size
     integer :: i, j, ij
-    integer, parameter :: i0 = 7, j0 = 7
-    real(kind=dp), parameter :: NEWVAL = 0.123456_dp
     logical, parameter :: dbgamat_det = .true. 
     integer       :: occ_orb, vir_orb
     real(kind=dp) :: mo_val, exc_val
     real(kind=dp) :: e_occ, e_vir
-!    integer, allocatable :: chosen(:), new_trans(:,:)
-!    integer :: num_chosen, idx, origDRF
 
     ! tagarray
     real(kind=dp), contiguous, pointer :: &
@@ -148,6 +143,7 @@ contains
     target_state = infos%tddft%target_state
     maxvec = infos%tddft%maxvec
     cnvtol = infos%tddft%cnvtol
+    dbgamat= infos%tddft%dbgamat
 
     nocca = infos%mol_prop%nelec_A
     nvira = nbf-noccA
@@ -280,11 +276,10 @@ contains
       call unpack_matrix(scr1t,fb)
     end if
 
-
-
   ! Construct TD trial vector
     call inivec(mo_energy_a,mo_energy_b,bvec_mo,xm, &
                 nocca,noccb,nvec)
+
     ist = 1
     istart = 1
     iend = nvec
@@ -354,12 +349,6 @@ contains
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
       call rparedms(bvec_mo,ab2_mo,ab2_mo,apb,amb,nvec,tamm_dancoff=.true.)
-      if (amat_rep) then
-         amb(i0, j0) = NEWVAL
-         amb(j0, i0) = NEWVAL
-         apb(i0, j0) = NEWVAL
-         apb(j0, i0) = NEWVAL
-      end if 
       block_size = 10
       if (dbgamat) then
         write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
@@ -389,20 +378,17 @@ contains
         do col0 = 1, nvec, block_size
           col1 = min(col0+block_size-1, nvec)
       
-          !── column headers ───────────────────────────────
           write(iw,'(/,11X)', advance='no')
           do jblk = col0, col1
             write(iw,'(I11)', advance='no') jblk
           end do
           write(iw,*)
       
-          !── each row ─────────────────────────────────────
           do i = 1, nvec
             write(iw,'(4X,I4,2X)', advance='no') i
             do jblk = col0, col1
       
               if (i == jblk) then
-                ! diag: real MO energies + coupling
                 occ_orb = trans(i,1)
                 vir_orb = trans(i,2)
                 e_occ   = fa(occ_orb,occ_orb)
@@ -413,7 +399,6 @@ contains
                       e_vir, e_occ, exc_val
       
               else
-                ! off-diag: zeros for MO parts, then coupling
                 exc_val = apb(i,jblk)
       
                 write(iw,'(F11.7,1X,F11.7,1X,F11.7)', advance='no') &
@@ -429,7 +414,6 @@ contains
         end do
         call flush(iw)
       end if
-
 
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)

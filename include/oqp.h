@@ -86,6 +86,9 @@ struct dft_parameters {
     double cnvtol;
     double zvconv;
     bool debug_mode;
+    bool dbgamat;
+    bool clh_flag;
+    double clh_scale;
     bool tda;
     int64_t tlf;
     double hfscale;

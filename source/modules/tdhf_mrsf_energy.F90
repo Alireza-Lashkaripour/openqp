@@ -40,7 +40,7 @@ contains
       mrinivec, mrsfcbc, mrsfmntoia, mrsfesum, &
       mrsfqroesum, get_mrsf_transitions, &
       get_mrsf_transition_density, &
-      get_mrsf_lh_transtion ! Checking 
+      get_mrsf_lh_transtion  
     use mathlib, only: orthogonal_transform, orthogonal_transform_sym, &
       unpack_matrix
     use oqp_linalg
@@ -60,7 +60,7 @@ contains
     real(kind=dp), allocatable :: wrk1(:,:), qvec(:,:)
     real(kind=dp), allocatable :: amo(:,:), wrk2(:,:)
     real(kind=dp), allocatable :: squared_S(:)
-    real(kind=dp), allocatable :: amb(:,:), apb(:,:) 
+    real(kind=dp), allocatable :: amb(:,:), apb(:,:)
     real(kind=dp), allocatable, target :: vl(:), vr(:)
     real(kind=dp), pointer :: vl_p(:,:), vr_p(:,:)
     real(kind=dp), allocatable :: xm(:), scr(:)
@@ -89,21 +89,18 @@ contains
     integer :: maxvec, mrst, nstates, target_state
     logical :: roref = .false.
     logical :: debug_mode
-    ! For printing Full-A matrix 
-    logical, parameter :: dbgamat2 = .false.
-    logical, parameter :: amat_rep2 = .false.
+    ! Debugging Option For printing Full-A matrix 
+    logical :: dbgamat 
     integer :: i, j, ij
     integer :: col0, col1, jblk, block_size
-    integer, parameter :: i0 = 2, j0 = 2
-    real(kind=dp), parameter :: NEWVAL = -0.5168283 
     real(kind=dp), allocatable :: a_tot(:,:)
     integer :: lh_idx
-    real(kind=dp), parameter :: scale = 1.1635_dp
+    logical :: clh_flag 
+    real(kind=dp) :: clh_scale ! 1.1635_dp
     real(kind=dp) :: original_A_lh_lh
     integer :: occ_orb, vir_orb
     real(kind=dp) :: before_exch, after_exch, new_A_lh_lh
     logical :: scale_on_MO = .false.
-    logical, parameter :: scale_it = .true. 
     real(kind=dp) :: corr
 
     type(int2_compute_t) :: int2_driver
@@ -145,8 +142,11 @@ contains
     target_state = infos%tddft%target_state
     maxvec = infos%tddft%maxvec
     cnvtol = infos%tddft%cnvtol
-!    infos%tddft%debug_mode = .True.
+!   infos%tddft%debug_mode = .True.
     debug_mode = infos%tddft%debug_mode
+    dbgamat = infos%tddft%dbgamat
+    clh_flag = infos%tddft%clh_flag
+    clh_scale = infos%tddft%clh_scale
 
     mol_mult = infos%mol_prop%mult
     if (mol_mult/=3) call show_message('MRSF-TDDFT are available for ROHF ref.&
@@ -188,7 +188,7 @@ contains
     infos%tddft%nstate = nstates
     nvec = min(max(nstates,6), mxvec)
         
-    if (dbgamat2) then 
+    if (dbgamat) then 
        mxvec = xvec_dim
        nvec  = xvec_dim
     end if
@@ -232,7 +232,7 @@ contains
              amo(xvec_dim,mxvec), &
              EEX(mxvec), &
              squared_S(nstates), &
-             a_tot(mxvec,mxvec), & ! For Debugging 
+             a_tot(mxvec,mxvec), & 
              APB(mxvec,mxvec), &
              AMB(mxvec,mxvec), &
              VR(mxvec*mxvec), &
@@ -354,9 +354,8 @@ contains
       call orthogonal_transform_sym(nbf, nbf, fock_b, mo_b, nbf, scr)
       call unpack_matrix(scr,fb)
     end if
-    ! Checking
+  ! Fills trans for Clh 
       call get_mrsf_transitions(trans, nocca, noccb, nbf)
- 
   ! Construct TD trial vector
     if (mrst==1 .or. mrst==3) then
 
@@ -373,8 +372,8 @@ contains
     iter = 0
     mxiter = infos%control%maxit_dav
     ierr = 0
-  ! For Debugging
-    if (dbgamat2) then
+
+    if (dbgamat) then
        bvec_mo=0
        do i=1, nvec
           do j=1,nvec
@@ -433,7 +432,7 @@ contains
 
         fmrst2 => int2_data_st%f3(:,:,:,:,1) ! ado2v, ado1v, adco1, adco2, ao21v, aco12, agdlr
 
-       ! Scaling factor if triplet
+        ! Scaling factor if triplet
         if (mrst==3) fmrst2(:,1:6,:,:) = -fmrst2(:,1:6,:,:)
 
         ! Spin pair coupling
@@ -478,8 +477,7 @@ contains
 
           call mntoia(int2_data_q%amb(:,:,iv,1), amo(:,ivec), mo_a, mo_b, noccb, nocca)
 
-          ! For Debugging
-          if (dbgamat2) then
+          if (dbgamat) then
              a_tot(:,iv) = amo(:,ivec)
           end if 
 
@@ -506,22 +504,16 @@ contains
 
       vl_p(1:nvec, 1:nvec) => vl(1:nvec*nvec)
       vr_p(1:nvec, 1:nvec) => vr(1:nvec*nvec)
-
-      if (scale_it) then 
-
+      if (clh_flag) then 
           call get_mrsf_lh_transtion(trans, nocca, noccb, lh_idx)
           print *, ' pre-scale A(',lh_idx,',',lh_idx,') = ', apb(lh_idx,lh_idx)
-
           if (lh_idx > 0 .and. lh_idx <= xvec_dim) then
-    
-            occ_orb = trans(lh_idx,1)   ! HOMO
-            vir_orb = trans(lh_idx,2)   ! LUMO
+            occ_orb = trans(lh_idx,1)   
+            vir_orb = trans(lh_idx,2)   
             original_A_lh_lh = fb((vir_orb),(vir_orb)) - &
                                fa((occ_orb),(occ_orb))
-    
 !            original_A_lh_lh = mo_energy_b(vir_orb) - &
 !                               mo_energy_a(occ_orb)
-
             before_exch = apb(lh_idx,lh_idx) - original_A_lh_lh
             print *, 'iter=', iter, ' LH diag BEFORE:'
             print *, '  F gap          =', original_A_lh_lh
@@ -538,14 +530,14 @@ contains
             print *, "1-e (MO gap)      =", original_A_lh_lh
 
             if (scale_on_MO) then
-              corr = (1.0_dp - scale) * original_A_lh_lh
+              corr = (1.0_dp - clh_scale) * original_A_lh_lh
               print *, '  [branch: MO]    corr = (1-scale)*MO_gap =', corr
             else
               if (original_A_lh_lh < 0.0_dp .and. before_exch > 0.0_dp) then
-                corr = (scale - 1.0_dp) * before_exch
+                corr = (clh_scale - 1.0_dp) * before_exch
                 print *, '  [branch: exch, inverted] corr = (scale-1)*exch =', corr
               else
-                corr = (1.0_dp - scale) * before_exch
+                corr = (1.0_dp - clh_scale) * before_exch
                 print *, '  [branch: exch] corr = (1-scale)*exch =', corr
               end if
             end if   
@@ -555,15 +547,15 @@ contains
             end do
 
             if (.not. scale_on_MO) then
-              apb(lh_idx,lh_idx) = original_A_lh_lh + scale * before_exch
+              apb(lh_idx,lh_idx) = original_A_lh_lh + clh_scale * before_exch
               print *, '  [direct patch] new total A =', apb(lh_idx,lh_idx)
             end if
     
             new_A_lh_lh = apb(lh_idx,lh_idx)
             print *, 'iter=', iter, ' LH diag AFTER:'
             if (scale_on_MO) then
-              print *, '  scaled MO gap   =', original_A_lh_lh*scale
-              after_exch = new_A_lh_lh - original_A_lh_lh*scale
+              print *, '  scaled MO gap   =', original_A_lh_lh*clh_scale
+              after_exch = new_A_lh_lh - original_A_lh_lh*clh_scale
             else
               print *, '  MO gap (unchanged)=', original_A_lh_lh
               after_exch = new_A_lh_lh - original_A_lh_lh
@@ -579,38 +571,14 @@ contains
             print *, "full A_diag        =", apb(lh_idx,lh_idx)
             print *, "2-e (amb)         =", amb(lh_idx,lh_idx)
             print *, "1-e (MO gap)      =", original_A_lh_lh
-
-
-
-            call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
-    
-            print *, 'iter=', iter, ' LH diag BEFORE:'                        
-            print *, '  F gap          =', original_A_lh_lh                   
-            print *, '  exch/Coulomb    =', before_exch                       
-            print *, 'bvec_mo(',lh_idx,',1:nvec) =', bvec_mo(lh_idx,1:nvec)   
-            print *, 'apb: ', apb(lh_idx,lh_idx)                              
-            print *, 'Occ_orb: ', occ_orb                                     
-            print *, 'Vir_orb: ', vir_orb                                     
-            print *, 'LUMO: ', mo_energy_b(vir_orb)                           
-            print *, 'HOMO: ', mo_energy_a(occ_orb)                           
-            print *, 'MO gap: ', mo_energy_b(vir_orb) - mo_energy_a(occ_orb)  
-            print *, "full A_diag        =", apb(lh_idx,lh_idx)               
-            print *, "2-e (amb)         =", amb(lh_idx,lh_idx)                
-            print *, "1-e (MO gap)      =", original_A_lh_lh                  
-                                                                              
+                                                                             
           end if  
       end if 
 
-      print *, "iter: ", iter
-      if (iter == 1 .and. amat_rep2) then
-         amb(i0, j0) = NEWVAL
-         amb(j0, i0) = NEWVAL
-         apb(i0, j0) = NEWVAL
-         apb(j0, i0) = NEWVAL
-      end if 
+      call rparedms(bvec_mo,amo,amo,apb,amb,nvec,tamm_dancoff=.true.)
 
       block_size = 10
-      if (dbgamat2) then
+      if (dbgamat) then
         write(iw,'(/,5x,"--- full A matrix (",I5,"×",I5,") ---")') nvec, nvec
         do col0 = 1, nvec, block_size
           col1 = min(col0+block_size-1, nvec)
@@ -630,6 +598,8 @@ contains
         end do
         call flush(iw)
       end if      
+
+
 
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)
@@ -657,6 +627,7 @@ contains
 
       ist = novec+1
       iend = nvec
+
     end do
 
     if (iter >= mxiter .and. .not. converged) ierr = -1
