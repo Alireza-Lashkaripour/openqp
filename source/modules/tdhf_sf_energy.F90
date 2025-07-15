@@ -87,9 +87,9 @@ contains
     integer :: scf_type, mol_mult
     ! Debugging Option For Printing Full A Matrix  
     logical :: dbgamat     
+    logical :: dbgamat_det 
     integer :: col0, col1, jblk, block_size
     integer :: i, j, ij
-    logical, parameter :: dbgamat_det = .true. 
     integer       :: occ_orb, vir_orb
     real(kind=dp) :: mo_val, exc_val
     real(kind=dp) :: e_occ, e_vir
@@ -144,6 +144,7 @@ contains
     maxvec = infos%tddft%maxvec
     cnvtol = infos%tddft%cnvtol
     dbgamat= infos%tddft%dbgamat
+    dbgamat_det = infos%tddft%dbgamat_det
 
     nocca = infos%mol_prop%nelec_A
     nvira = nbf-noccA

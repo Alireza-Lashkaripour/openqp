@@ -91,6 +91,7 @@ contains
     logical :: debug_mode
     ! Debugging Option For printing Full-A matrix 
     logical :: dbgamat 
+    logical :: dbgamat_det  
     integer :: i, j, ij
     integer :: col0, col1, jblk, block_size
     real(kind=dp), allocatable :: a_tot(:,:)
@@ -99,6 +100,7 @@ contains
     real(kind=dp) :: clh_scale ! 1.1635_dp
     real(kind=dp) :: original_A_lh_lh
     integer :: occ_orb, vir_orb
+    real(kind=dp) :: mo_val, exc_val, e_occ, e_vir
     real(kind=dp) :: before_exch, after_exch, new_A_lh_lh
     logical :: scale_on_MO = .false.
     real(kind=dp) :: corr
@@ -145,6 +147,7 @@ contains
 !   infos%tddft%debug_mode = .True.
     debug_mode = infos%tddft%debug_mode
     dbgamat = infos%tddft%dbgamat
+    dbgamat_det = infos%tddft%dbgamat_det
     clh_flag = infos%tddft%clh_flag
     clh_scale = infos%tddft%clh_scale
 
@@ -599,7 +602,48 @@ contains
         call flush(iw)
       end if      
 
+      if (dbgamat_det) then
+        call get_transitions(trans, nocca, noccb, nbf)
+        write(iw,'(/,5x,"--- A components (E_occ | E_vir | K_ij) (",I5,"×",I5,") ---")') nvec, nvec
+        do col0 = 1, nvec, block_size
+          col1 = min(col0+block_size-1, nvec)
 
+          write(iw,'(/,11X)', advance='no')
+          do jblk = col0, col1
+            write(iw,'(I11)', advance='no') jblk
+          end do
+          write(iw,*)
+
+          do i = 1, nvec
+            write(iw,'(4X,I4,2X)', advance='no') i
+            do jblk = col0, col1
+
+              if (i == jblk) then
+                occ_orb = trans(i,1)
+                vir_orb = trans(i,2)
+                e_occ   = fa(occ_orb,occ_orb)
+                e_vir   = fb(vir_orb,vir_orb)
+                exc_val = apb(i,i) - (e_vir - e_occ)
+
+                write(iw,'(F11.7,1X,F11.7,1X,F11.7)', advance='no') &
+                      e_vir, e_occ, exc_val
+
+              else
+                exc_val = apb(i,jblk)
+
+                write(iw,'(F11.7,1X,F11.7,1X,F11.7)', advance='no') &
+                      0.0_dp, 0.0_dp, exc_val
+
+              end if
+
+            end do
+            write(iw,*)
+          end do
+
+          write(iw,*)
+        end do
+        call flush(iw)
+      end if
 
       call rpaeig(eex,vl_p,vr_p,apb,amb,scr2,tamm_dancoff=.true.)
       call rpavnorm(vr_p,vl_p,tamm_dancoff=.true.)

@@ -134,6 +134,7 @@ OQP_CONFIG_SCHEMA = {
         'conf_threshold': {'type': float, 'default': '5.0e-2'},
         'ixcore': {'type' : string, 'default' : '-1'},
         'dbgamat': {'type': bool, 'default': 'False'},
+        'dbgamat_det': {'type': bool, 'default': 'False'},
         'clh_flag': {'type': bool, 'default': 'False'},
         'clh_scale': {'type': float, 'default': '1.0'}
     },
@@ -297,6 +298,7 @@ class OQPData:
             "spc_coov": "set_tdhf_spc_coov",
             "conf_threshold": "set_conf_threshold",
             "dbgamat": "set_tdhf_dbgamat",
+            "dbgamat_det": "set_tdhf_dbgamat_det",
             "clh_flag": "set_tdhf_clh_flag",
             "clh_scale": "set_tdhf_clh_scale"
 #            "ixcore" : "set_tdhf_ixcore",
@@ -633,6 +635,10 @@ class OQPData:
     def set_tdhf_dbgamat(self, dbgamat):
         """Debugging Option For Printing Full A matrix"""
         self._data.tddft.dbgamat = dbgamat
+
+    def set_tdhf_dbgamat_det(self, dbgamat_det):
+        """Debugging Option For Printing Full A matrix in their component format"""
+        self._data.tddft.dbgamat_det = dbgamat_det
 
     def set_tdhf_clh_flag(self, clh_flag):
         """Scales Exchange Elements in MRSF A matrix for LUMO-->HOMO trans by Clh"""
