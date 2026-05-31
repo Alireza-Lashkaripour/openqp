@@ -18,7 +18,8 @@ class FCISettings:
     active_electrons: int = 0
     active_orbitals: int = 0
     frozen_core: int = 0
-    max_det: int = 50000
+    max_det: int = 5000
+    max_memory: int = 2048
     eig_tol: float = 1.0e-10
     integral_backend: str = "native"
     integral_cutoff: float = 5.0e-11
@@ -100,7 +101,8 @@ def solve_fci(
     *,
     ecore: float = 0.0,
     nroot: int = 1,
-    max_det: int = 50000,
+    max_det: int = 5000,
+    max_memory: int = 2048,
     eig_tol: float = 1.0e-10,
     integral_cutoff: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -128,7 +130,20 @@ def solve_fci(
         raise ValueError("FCI determinant space is empty")
     if ndet > max_det:
         raise ValueError(
-            f"FCI determinant space has {ndet} determinants, exceeding max_det={max_det}"
+            f"FCI determinant space has {ndet} determinants, exceeding max_det={max_det}. "
+            "Reduce the active space ([fci] frozen_core/active_orbitals) or raise [fci] max_det."
+        )
+    # The explicit dense Hamiltonian dominates memory at 8*ndet**2 bytes; guard it
+    # before allocating so an over-large active space fails with a clear message
+    # instead of an out-of-memory crash.
+    dense_bytes = 8 * ndet * ndet
+    budget_bytes = max(1, int(max_memory)) * 1024 * 1024
+    if dense_bytes > budget_bytes:
+        raise ValueError(
+            f"FCI dense Hamiltonian for {ndet} determinants needs "
+            f"~{dense_bytes / 1024 ** 3:.2f} GiB, exceeding the [fci] max_memory budget "
+            f"of {max_memory} MiB. Reduce the active space or raise [fci] max_memory; "
+            "the dense solver is only intended for small active spaces."
         )
     if nroot < 1 or nroot > ndet:
         raise ValueError(f"nroot must be between 1 and the determinant count ({ndet})")
@@ -237,7 +252,8 @@ def _settings_from_config(config: dict) -> FCISettings:
         active_electrons=int(raw.get("active_electrons", 0)),
         active_orbitals=int(raw.get("active_orbitals", 0)),
         frozen_core=int(raw.get("frozen_core", 0)),
-        max_det=int(raw.get("max_det", 50000)),
+        max_det=int(raw.get("max_det", 5000)),
+        max_memory=int(raw.get("max_memory", 2048)),
         eig_tol=float(raw.get("eig_tol", 1.0e-10)),
         integral_backend=str(raw.get("integral_backend", "native")).lower(),
         integral_cutoff=float(raw.get("integral_cutoff", 5.0e-11)),
@@ -328,6 +344,7 @@ class FCI:
             ecore=ecore,
             nroot=self.settings.nroot,
             max_det=self.settings.max_det,
+            max_memory=self.settings.max_memory,
             eig_tol=self.settings.eig_tol,
             integral_cutoff=self.settings.integral_cutoff,
         )
@@ -353,10 +370,22 @@ class FCI:
         )
         return self.mol.energies
 
+    def _check_ao_eri_budget(self, nbf: int) -> None:
+        """Guard the dense AO ERI allocation (nbf**4 doubles) before building it."""
+        dense_bytes = 8 * int(nbf) ** 4
+        budget_bytes = max(1, int(self.settings.max_memory)) * 1024 * 1024
+        if dense_bytes > budget_bytes:
+            raise ValueError(
+                f"Dense AO ERI for nbf={nbf} needs ~{dense_bytes / 1024 ** 3:.2f} GiB, "
+                f"exceeding the [fci] max_memory budget of {self.settings.max_memory} MiB. "
+                "Dense FCI is only intended for small basis sets."
+            )
+
     def _native_mo_integrals(self):
+        nbf = int(self.mol.data.get_basis()["nbf"])
+        self._check_ao_eri_budget(nbf)
         oqp.fci_ao_integrals(self.mol)
 
-        nbf = int(self.mol.data.get_basis()["nbf"])
         hcore = _unpack_lower_triangle(np.asarray(self.mol.data["OQP::Hcore"], dtype=float), nbf)
         coeff = np.asarray(self.mol.data["OQP::VEC_MO_A"], dtype=float).reshape((nbf, nbf)).T
         eri_ao = np.asarray(self.mol.data["OQP::AO_ERI"], dtype=float).reshape(
