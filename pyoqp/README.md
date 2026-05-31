@@ -190,6 +190,7 @@ input section handle the basic information of molecular system
       
       hf         time-independent calculations, HF, DFT (default)
       tdhf       timd-dependent calculation, TDDFT, MRSF-TDDFT
+      fci        full configuration interaction energy (small closed-shell RHF systems)
 
 - runtype // choose the type of oqp calculation
        
@@ -360,6 +361,48 @@ tdhf section handle the time-dependent calculations
 - nvdav // set the dimension of the Davidson subspace
 
       50 (default)
+
+### [fci]
+
+fci section handles small dense full configuration interaction (FCI) energy
+calculations on top of a closed-shell RHF reference. This is an MVP intended for
+small active spaces only; see examples/FCI for usage and current limitations.
+
+- nroot // number of CI roots (states) to return
+
+      1 (default)
+
+- active_electrons // number of electrons in the active space
+
+      0 (default; 0 uses all electrons)
+
+- active_orbitals // number of spatial orbitals in the active space
+
+      0 (default; 0 uses all orbitals after the frozen core)
+
+- frozen_core // number of doubly-occupied orbitals frozen into the core
+
+      0 (default)
+
+- max_det // hard cap on the number of determinants for the dense solver
+
+      5000 (default)
+
+- max_memory // memory budget in MiB for the dense Hamiltonian and AO integrals
+
+      2048 (default)
+
+- eig_tol // residual tolerance for the dense eigensolver sanity check
+
+      1.0e-10 (default)
+
+- integral_backend // source of the one- and two-electron integrals
+
+      native (default; the only supported value)
+
+- integral_cutoff // magnitude below which integral contributions are skipped
+
+      5.0e-11 (default)
 
 ### [properties]
 

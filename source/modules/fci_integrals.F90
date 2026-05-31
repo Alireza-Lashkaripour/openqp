@@ -49,6 +49,9 @@ contains
     type(fci_eri_data_t) :: eri_data
     integer :: nbf
     integer :: neri
+    integer(8) :: neri64
+    real(kind=dp) :: eri_mb
+    character(len=256) :: msg
 
     basis => infos%basis
     basis%atoms => infos%atoms
@@ -56,7 +59,19 @@ contains
 
     if (nbf <= 0) call show_message("FCI AO ERI requested before basis setup", WITH_ABORT)
 
-    neri = nbf * nbf * nbf * nbf
+    ! Dense AO ERI storage scales as nbf**4. Guard against 32-bit overflow of the
+    ! element count and against an unreasonable allocation: dense FCI is meant for
+    ! small systems only, so a few-GiB ceiling is the right backstop here.
+    neri64 = int(nbf, 8)**4
+    eri_mb = real(neri64, dp) * 8.0_dp / (1024.0_dp**2)
+    if (neri64 > int(huge(neri), 8) .or. eri_mb > 4096.0_dp) then
+      write(msg, '(A,I0,A,F0.1,A)') &
+        "FCI dense AO ERI request is too large (nbf=", nbf, ", ", eri_mb, &
+        " MiB); dense FCI is intended for small active spaces only."
+      call show_message(trim(msg), WITH_ABORT)
+    end if
+    neri = int(neri64)
+
     call infos%dat%remove_records((/ character(len=80) :: OQP_AO_ERI /))
     call infos%dat%reserve_data(OQP_AO_ERI, TA_TYPE_REAL64, neri, comment=OQP_AO_ERI_comment)
     call tagarray_get_data(infos%dat, OQP_AO_ERI, eri_data%eri)

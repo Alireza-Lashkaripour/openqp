@@ -18,3 +18,9 @@ include/*
 lib64/*
 share/*
 examples/data_*
+
+# CMake/ninja build tree and Python test artifacts
+build/
+__pycache__/
+*.pyc
+.pytest_cache/

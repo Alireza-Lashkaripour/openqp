@@ -589,7 +589,8 @@ def _check_fci(config: dict[str, Any], report: CheckReport) -> None:
     active_electrons = _get(config, "fci", "active_electrons", 0)
     active_orbitals = _get(config, "fci", "active_orbitals", 0)
     frozen_core = _get(config, "fci", "frozen_core", 0)
-    max_det = _get(config, "fci", "max_det", 50000)
+    max_det = _get(config, "fci", "max_det", 5000)
+    max_memory = _get(config, "fci", "max_memory", 2048)
     eig_tol = _get(config, "fci", "eig_tol", 1.0e-10)
     integral_backend = _as_lower(_get(config, "fci", "integral_backend", "native"))
     integral_cutoff = _get(config, "fci", "integral_cutoff", 5.0e-11)
@@ -655,6 +656,16 @@ def _check_fci(config: dict[str, Any], report: CheckReport) -> None:
             value=max_det,
             expected=">= 1",
             action="Increase [fci] max_det.",
+        )
+
+    if max_memory < 1:
+        report.add(
+            "ERROR",
+            "fci.max_memory",
+            "FCI memory budget must be positive.",
+            value=max_memory,
+            expected=">= 1 (MiB)",
+            action="Set [fci] max_memory to a positive size in MiB.",
         )
 
     if eig_tol <= 0:
