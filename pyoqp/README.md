@@ -404,6 +404,16 @@ small active spaces only; see examples/FCI for usage and current limitations.
 
       5.0e-11 (default)
 
+- solver // CI eigensolver
+
+      auto       dense for small spaces, Davidson once the dense matrix would exceed max_memory (default)
+      dense      build the explicit ndet x ndet Hamiltonian and diagonalize with numpy.linalg.eigh
+      davidson   build a sparse Hamiltonian and run a block Davidson iteration (avoids ndet^2 storage)
+
+- davidson_maxiter // maximum Davidson iterations
+
+      100 (default)
+
 ### [properties]
 
 properties section handel the property calculation

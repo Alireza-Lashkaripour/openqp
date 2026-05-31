@@ -21,6 +21,7 @@ METHODS = {"hf", "tdhf", "fci"}
 SCF_TYPES = {"rhf", "rohf", "uhf"}
 TDHF_TYPES = {"rpa", "tda", "sf", "mrsf", "umrsf"}
 FCI_INTEGRAL_BACKENDS = {"native"}
+FCI_SOLVERS = {"auto", "dense", "davidson"}
 GUESS_TYPES = {"huckel", "hcore", "json", "auto", "pyscf", "sad", "sap"}
 SCF_CONVERGERS = {"diis", "soscf", "trah"}
 OPTIONAL_SCF_CONVERGERS = SCF_CONVERGERS | {"none", ""}
@@ -594,6 +595,8 @@ def _check_fci(config: dict[str, Any], report: CheckReport) -> None:
     eig_tol = _get(config, "fci", "eig_tol", 1.0e-10)
     integral_backend = _as_lower(_get(config, "fci", "integral_backend", "native"))
     integral_cutoff = _get(config, "fci", "integral_cutoff", 5.0e-11)
+    solver = _as_lower(_get(config, "fci", "solver", "auto"))
+    davidson_maxiter = _get(config, "fci", "davidson_maxiter", 100)
 
     if runtype != "energy":
         report.add(
@@ -696,6 +699,26 @@ def _check_fci(config: dict[str, Any], report: CheckReport) -> None:
             value=integral_backend,
             expected=", ".join(sorted(FCI_INTEGRAL_BACKENDS)),
             action="Use [fci] integral_backend=native.",
+        )
+
+    if solver not in FCI_SOLVERS:
+        report.add(
+            "ERROR",
+            "fci.solver",
+            "Unknown FCI solver.",
+            value=solver,
+            expected=", ".join(sorted(FCI_SOLVERS)),
+            action="Use [fci] solver=auto, dense, or davidson.",
+        )
+
+    if davidson_maxiter < 1:
+        report.add(
+            "ERROR",
+            "fci.davidson_maxiter",
+            "FCI Davidson iteration limit must be positive.",
+            value=davidson_maxiter,
+            expected=">= 1",
+            action="Set [fci] davidson_maxiter to a positive integer.",
         )
 
 

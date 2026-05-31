@@ -158,6 +158,8 @@ OQP_CONFIG_SCHEMA = {
         'eig_tol': {'type': float, 'default': '1.0e-10'},
         'integral_backend': {'type': string, 'default': 'native'},
         'integral_cutoff': {'type': float, 'default': '5.0e-11'},
+        'solver': {'type': string, 'default': 'auto'},
+        'davidson_maxiter': {'type': int, 'default': '100'},
     },
     'properties': {
         'scf_prop': {'type': sarray, 'default': 'el_mom,mulliken'},

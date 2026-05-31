@@ -23,6 +23,8 @@ class FCISettings:
     eig_tol: float = 1.0e-10
     integral_backend: str = "native"
     integral_cutoff: float = 5.0e-11
+    solver: str = "auto"
+    davidson_maxiter: int = 100
 
 
 def _annihilate(det: int, orb: int) -> tuple[int, int] | None:
@@ -94,6 +96,174 @@ def _spin_orbital_integrals(
     return hspin, gspin
 
 
+def _iter_hamiltonian_elements(dets, det_index, hspin, gspin, nspin, cutoff):
+    """Yield ``(row, col, value)`` contributions to the FCI Hamiltonian.
+
+    This is the single second-quantized enumeration shared by the dense and the
+    sparse/iterative paths: the ``a_p^+ a_q`` one-electron terms and the
+    ``0.5 (pq|rs) a_p^+ a_q^+ a_s a_r`` two-electron terms in the spin-orbital
+    basis. Several contributions to the same ``(row, col)`` are summed by the
+    caller.
+    """
+    for col, det in enumerate(dets):
+        occ = _occupied(det, nspin)
+
+        for q in occ:
+            ann_q = _annihilate(det, q)
+            if ann_q is None:
+                continue
+            det_q, phase_q = ann_q
+            for p in range(nspin):
+                hval = hspin[p, q]
+                if abs(hval) <= cutoff:
+                    continue
+                cre_p = _create(det_q, p)
+                if cre_p is None:
+                    continue
+                det_pq, phase_p = cre_p
+                row = det_index.get(det_pq)
+                if row is not None:
+                    yield row, col, hval * phase_q * phase_p
+
+        for r in occ:
+            ann_r = _annihilate(det, r)
+            if ann_r is None:
+                continue
+            det_r, phase_r = ann_r
+            for s in _occupied(det_r, nspin):
+                ann_s = _annihilate(det_r, s)
+                if ann_s is None:
+                    continue
+                det_rs, phase_s = ann_s
+                for q in range(nspin):
+                    cre_q = _create(det_rs, q)
+                    if cre_q is None:
+                        continue
+                    det_qrs, phase_q = cre_q
+                    for p in range(nspin):
+                        gval = gspin[p, q, r, s]
+                        if abs(gval) <= cutoff:
+                            continue
+                        cre_p = _create(det_qrs, p)
+                        if cre_p is None:
+                            continue
+                        det_pqrs, phase_p = cre_p
+                        row = det_index.get(det_pqrs)
+                        if row is not None:
+                            yield row, col, 0.5 * gval * phase_r * phase_s * phase_q * phase_p
+
+
+def _build_dense_hamiltonian(dets, det_index, hspin, gspin, nspin, cutoff):
+    """Assemble the explicit dense FCI Hamiltonian (8*ndet**2 bytes)."""
+    ndet = len(dets)
+    hamiltonian = np.zeros((ndet, ndet), dtype=float)
+    for row, col, value in _iter_hamiltonian_elements(
+        dets, det_index, hspin, gspin, nspin, cutoff
+    ):
+        hamiltonian[row, col] += value
+    return 0.5 * (hamiltonian + hamiltonian.T)
+
+
+def _build_sparse_hamiltonian(dets, det_index, hspin, gspin, nspin, cutoff):
+    """Assemble the FCI Hamiltonian as a sparse CSR matrix (no ndet**2 storage)."""
+    import scipy.sparse as sp
+
+    ndet = len(dets)
+    rows: list[int] = []
+    cols: list[int] = []
+    vals: list[float] = []
+    for row, col, value in _iter_hamiltonian_elements(
+        dets, det_index, hspin, gspin, nspin, cutoff
+    ):
+        rows.append(row)
+        cols.append(col)
+        vals.append(value)
+    hamiltonian = sp.coo_matrix(
+        (vals, (rows, cols)), shape=(ndet, ndet), dtype=float
+    ).tocsr()
+    # The enumeration already produces a symmetric matrix; symmetrize defensively
+    # (matching the dense path) so the iterative solver sees an exactly symmetric
+    # operator.
+    return (0.5 * (hamiltonian + hamiltonian.transpose())).tocsr()
+
+
+def _davidson(hamiltonian, diag, nroot, *, tol=1.0e-10, max_iter=100):
+    """Lowest ``nroot`` eigenpairs of a symmetric operator via block Davidson.
+
+    ``hamiltonian`` only needs a ``.dot`` matrix-vector product; ``diag`` is the
+    operator diagonal used as the Davidson preconditioner.
+    """
+    import scipy.sparse as sp
+
+    ndet = hamiltonian.shape[0]
+    # Tiny spaces: a direct dense diagonalization is cheaper and more robust than
+    # iterating, and it also covers nroot close to ndet.
+    if ndet <= max(2 * nroot + 20, 40):
+        dense = hamiltonian.toarray() if sp.issparse(hamiltonian) else np.asarray(hamiltonian)
+        eigvals, eigvecs = np.linalg.eigh(0.5 * (dense + dense.T))
+        return eigvals[:nroot], eigvecs[:, :nroot]
+
+    diag = np.asarray(diag, dtype=float)
+    matvec = hamiltonian.dot
+    max_subspace = min(ndet, max(4 * nroot, 2 * nroot + 20))
+
+    # Initial guess: unit vectors on the nroot lowest diagonal elements.
+    order = np.argsort(diag)
+    basis = np.zeros((ndet, nroot), dtype=float)
+    for i in range(nroot):
+        basis[order[i], i] = 1.0
+    basis, _ = np.linalg.qr(basis)
+    sigma = matvec(basis)
+
+    residual_norms = np.full(nroot, np.inf)
+    for _ in range(max_iter):
+        sub = basis.T @ sigma
+        sub = 0.5 * (sub + sub.T)
+        theta, vecs = np.linalg.eigh(sub)
+        theta = theta[:nroot]
+        vecs = vecs[:, :nroot]
+        ritz = basis @ vecs
+        residual = sigma @ vecs - ritz * theta
+        residual_norms = np.linalg.norm(residual, axis=0)
+        if np.max(residual_norms) < tol:
+            return theta, ritz
+
+        # Preconditioned corrections for the unconverged roots.
+        additions = []
+        for i in range(nroot):
+            if residual_norms[i] < tol:
+                continue
+            denom = theta[i] - diag
+            denom = np.where(np.abs(denom) < 1.0e-12, 1.0e-12, denom)
+            additions.append(residual[:, i] / denom)
+
+        # Restart from the current Ritz vectors when the subspace would overflow.
+        if not additions or basis.shape[1] + len(additions) > max_subspace:
+            basis, _ = np.linalg.qr(ritz)
+            sigma = matvec(basis)
+            continue
+
+        new_cols = []
+        current = basis
+        for vec in additions:
+            for _ in range(2):  # orthogonalize twice for numerical stability
+                vec = vec - current @ (current.T @ vec)
+            norm = np.linalg.norm(vec)
+            if norm > 1.0e-8:
+                vec = vec / norm
+                current = np.column_stack([current, vec])
+                new_cols.append(vec)
+        if not new_cols:
+            return theta, ritz
+        sigma = np.column_stack([sigma, matvec(np.column_stack(new_cols))])
+        basis = current
+
+    raise ValueError(
+        f"FCI Davidson did not converge in {max_iter} iterations "
+        f"(max residual {np.max(residual_norms):.3e} > eig_tol={tol:.3e})"
+    )
+
+
 def solve_fci(
     h1e: np.ndarray,
     eri: np.ndarray,
@@ -105,12 +275,23 @@ def solve_fci(
     max_memory: int = 2048,
     eig_tol: float = 1.0e-10,
     integral_cutoff: float = 0.0,
+    solver: str = "auto",
+    davidson_maxiter: int = 100,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Diagonalize a dense FCI Hamiltonian in a determinant basis.
+    """Solve the FCI eigenproblem in a determinant basis.
 
     The two-electron tensor uses chemists' notation ``(pq|rs)`` over spatial
-    orbitals. This routine is intentionally dense and meant for small active
-    spaces; it is not a replacement for an iterative production-scale CI solver.
+    orbitals. Two solvers are available:
+
+    * ``"dense"`` builds the explicit ``ndet x ndet`` Hamiltonian and calls
+      :func:`numpy.linalg.eigh` (exact, but ``8*ndet**2`` bytes of storage);
+    * ``"davidson"`` builds a sparse Hamiltonian and runs a block Davidson
+      iteration for the lowest ``nroot`` states, avoiding the dense matrix.
+
+    ``"auto"`` (the default) uses the dense solver while its Hamiltonian fits the
+    ``max_memory`` budget and switches to Davidson once it would not. Both paths
+    share the same verified second-quantized matrix-element enumeration, so they
+    agree to numerical precision. This is still meant for small active spaces.
     """
 
     h1e = np.asarray(h1e, dtype=float)
@@ -133,86 +314,68 @@ def solve_fci(
             f"FCI determinant space has {ndet} determinants, exceeding max_det={max_det}. "
             "Reduce the active space ([fci] frozen_core/active_orbitals) or raise [fci] max_det."
         )
-    # The explicit dense Hamiltonian dominates memory at 8*ndet**2 bytes; guard it
-    # before allocating so an over-large active space fails with a clear message
-    # instead of an out-of-memory crash.
+    if nroot < 1 or nroot > ndet:
+        raise ValueError(f"nroot must be between 1 and the determinant count ({ndet})")
+
+    solver = str(solver).lower()
+    if solver not in ("auto", "dense", "davidson"):
+        raise ValueError(f"Unknown FCI solver '{solver}'; choose auto, dense, or davidson")
+
+    # The explicit dense Hamiltonian costs 8*ndet**2 bytes; the Davidson path only
+    # needs a sparse Hamiltonian plus a handful of length-ndet vectors.
     dense_bytes = 8 * ndet * ndet
     budget_bytes = max(1, int(max_memory)) * 1024 * 1024
-    if dense_bytes > budget_bytes:
+    if solver == "auto":
+        solver = "dense" if dense_bytes <= budget_bytes else "davidson"
+    if solver == "dense" and dense_bytes > budget_bytes:
         raise ValueError(
             f"FCI dense Hamiltonian for {ndet} determinants needs "
             f"~{dense_bytes / 1024 ** 3:.2f} GiB, exceeding the [fci] max_memory budget "
-            f"of {max_memory} MiB. Reduce the active space or raise [fci] max_memory; "
-            "the dense solver is only intended for small active spaces."
+            f"of {max_memory} MiB. Reduce the active space, raise [fci] max_memory, "
+            "or use the iterative solver ([fci] solver=davidson)."
         )
-    if nroot < 1 or nroot > ndet:
-        raise ValueError(f"nroot must be between 1 and the determinant count ({ndet})")
 
     dets = _determinants(norb, (nalpha, nbeta))
     det_index = {det: idx for idx, det in enumerate(dets)}
     nspin = 2 * norb
     hspin, gspin = _spin_orbital_integrals(h1e, eri)
-    hamiltonian = np.zeros((ndet, ndet), dtype=float)
 
-    for col, det in enumerate(dets):
-        occ = _occupied(det, nspin)
-
-        for q in occ:
-            ann_q = _annihilate(det, q)
-            if ann_q is None:
-                continue
-            det_q, phase_q = ann_q
-            for p in range(nspin):
-                hval = hspin[p, q]
-                if abs(hval) <= integral_cutoff:
-                    continue
-                cre_p = _create(det_q, p)
-                if cre_p is None:
-                    continue
-                det_pq, phase_p = cre_p
-                row = det_index.get(det_pq)
-                if row is not None:
-                    hamiltonian[row, col] += hval * phase_q * phase_p
-
-        for r in occ:
-            ann_r = _annihilate(det, r)
-            if ann_r is None:
-                continue
-            det_r, phase_r = ann_r
-            for s in _occupied(det_r, nspin):
-                ann_s = _annihilate(det_r, s)
-                if ann_s is None:
-                    continue
-                det_rs, phase_s = ann_s
-                for q in range(nspin):
-                    cre_q = _create(det_rs, q)
-                    if cre_q is None:
-                        continue
-                    det_qrs, phase_q = cre_q
-                    for p in range(nspin):
-                        gval = gspin[p, q, r, s]
-                        if abs(gval) <= integral_cutoff:
-                            continue
-                        cre_p = _create(det_qrs, p)
-                        if cre_p is None:
-                            continue
-                        det_pqrs, phase_p = cre_p
-                        row = det_index.get(det_pqrs)
-                        if row is not None:
-                            hamiltonian[row, col] += (
-                                0.5 * gval * phase_r * phase_s * phase_q * phase_p
-                            )
-
-    hamiltonian = 0.5 * (hamiltonian + hamiltonian.T)
-    eigvals, eigvecs = np.linalg.eigh(hamiltonian)
-    for root in range(nroot):
-        residual = np.linalg.norm(
-            hamiltonian @ eigvecs[:, root] - eigvals[root] * eigvecs[:, root]
+    if solver == "dense":
+        hamiltonian = _build_dense_hamiltonian(
+            dets, det_index, hspin, gspin, nspin, integral_cutoff
         )
-        if residual > eig_tol:
-            raise ValueError(
-                f"FCI diagonalization residual {residual:.3e} exceeds eig_tol={eig_tol:.3e}"
+        eigvals, eigvecs = np.linalg.eigh(hamiltonian)
+        for root in range(nroot):
+            residual = np.linalg.norm(
+                hamiltonian @ eigvecs[:, root] - eigvals[root] * eigvecs[:, root]
             )
+            if residual > eig_tol:
+                raise ValueError(
+                    f"FCI diagonalization residual {residual:.3e} exceeds eig_tol={eig_tol:.3e}"
+                )
+    else:
+        # Iterative path: never forms the dense ndet x ndet matrix. Guard the
+        # dense Davidson working vectors against the budget; the sparse
+        # Hamiltonian is the intended trade-off for avoiding O(ndet**2) storage.
+        max_subspace = min(ndet, max(4 * nroot, 2 * nroot + 20))
+        work_bytes = 8 * ndet * (2 * max_subspace + 4 * nroot)
+        if work_bytes > budget_bytes:
+            raise ValueError(
+                f"FCI Davidson working set for {ndet} determinants needs "
+                f"~{work_bytes / 1024 ** 3:.2f} GiB, exceeding the [fci] max_memory "
+                f"budget of {max_memory} MiB. Reduce the active space or raise [fci] max_memory."
+            )
+        hamiltonian = _build_sparse_hamiltonian(
+            dets, det_index, hspin, gspin, nspin, integral_cutoff
+        )
+        eigvals, eigvecs = _davidson(
+            hamiltonian,
+            hamiltonian.diagonal(),
+            nroot,
+            tol=eig_tol,
+            max_iter=davidson_maxiter,
+        )
+
     return eigvals[:nroot] + float(ecore), eigvecs[:, :nroot]
 
 
@@ -257,6 +420,8 @@ def _settings_from_config(config: dict) -> FCISettings:
         eig_tol=float(raw.get("eig_tol", 1.0e-10)),
         integral_backend=str(raw.get("integral_backend", "native")).lower(),
         integral_cutoff=float(raw.get("integral_cutoff", 5.0e-11)),
+        solver=str(raw.get("solver", "auto")).lower(),
+        davidson_maxiter=int(raw.get("davidson_maxiter", 100)),
     )
 
 
@@ -347,6 +512,8 @@ class FCI:
             max_memory=self.settings.max_memory,
             eig_tol=self.settings.eig_tol,
             integral_cutoff=self.settings.integral_cutoff,
+            solver=self.settings.solver,
+            davidson_maxiter=self.settings.davidson_maxiter,
         )
 
         self.mol.energies = energies.tolist()

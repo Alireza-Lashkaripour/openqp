@@ -43,11 +43,13 @@ max_det=1000
 | `active_electrons` | `0`      | electrons in the active space (`0` = all) |
 | `active_orbitals`  | `0`      | spatial orbitals in the active space (`0` = all after the frozen core) |
 | `frozen_core`      | `0`      | doubly-occupied orbitals frozen into the core |
-| `max_det`          | `5000`   | hard cap on the determinant count (dense solver) |
-| `max_memory`       | `2048`   | memory budget in MiB for the dense Hamiltonian / AO integrals |
-| `eig_tol`          | `1.0e-10`| residual tolerance for the dense eigensolver sanity check |
+| `max_det`          | `5000`   | hard cap on the determinant count |
+| `max_memory`       | `2048`   | memory budget in MiB (dense Hamiltonian / AO integrals / Davidson vectors) |
+| `eig_tol`          | `1.0e-10`| eigensolver residual tolerance (dense sanity check / Davidson convergence) |
 | `integral_backend` | `native` | integral source (only `native` is supported) |
 | `integral_cutoff`  | `5.0e-11`| magnitude below which integral contributions are skipped |
+| `solver`           | `auto`   | `auto` (dense, or Davidson once dense exceeds `max_memory`), `dense`, or `davidson` |
+| `davidson_maxiter` | `100`    | maximum Davidson iterations |
 
 An active space is defined as `frozen_core` doubly-occupied core orbitals plus
 `active_orbitals` active orbitals; any higher virtual orbitals are dropped
@@ -75,6 +77,11 @@ FCI algorithm. These checks are reproduced by `tests/test_fci.py`.
 ## Current limitations
 
 1. Closed-shell RHF singlet **energy** only (no gradients, no open shell, no UHF/ROHF).
-2. Dense determinant Hamiltonian + dense `numpy.linalg.eigh` (no Davidson yet).
+2. Two solvers: a dense `numpy.linalg.eigh` path and a sparse-Hamiltonian block
+   **Davidson** path (`solver=davidson`/`auto`) that avoids the `ndet**2` dense
+   matrix. The matrix-element enumeration is still pure Python, so it is the
+   current speed bottleneck — a fully matrix-free / string-based (Olsen) sigma
+   build is the next scaling step.
 3. Dense `nbf**4` AO ERI storage (no symmetry compression); guarded by `max_memory`.
-4. Practical only for very small active spaces (a few thousand determinants).
+4. Practical only for small active spaces (Davidson relaxes the memory wall but
+   not the pure-Python build cost).

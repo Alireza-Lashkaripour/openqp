@@ -269,3 +269,114 @@ def test_input_checker_rejects_invalid_fci(override, bad_path):
 
     assert not report.ok, "expected the invalid FCI input to be rejected"
     assert any(d.path == bad_path for d in report.diagnostics), report.to_text()
+
+
+@pytest.mark.parametrize(
+    ("atom", "charge", "expected"),
+    [
+        ("H 0 0 0; H 0 0 0.740", 0, -1.137283834489),
+        ("He 0 0 0; H 0 0 1.4632", 1, -2.826674836464),
+    ],
+)
+def test_davidson_solver_matches_live_pyscf_reference(atom, charge, expected):
+    _use_real_oqp_package()
+    from oqp.library.fci import solve_fci
+
+    h1e, eri, nelec, ecore, energy_ref = _pyscf_reference(atom, charge=charge)
+    assert energy_ref == pytest.approx(expected, abs=5.0e-11)
+
+    energies, _ = solve_fci(
+        h1e, eri, nelec, ecore=ecore, nroot=1, max_det=1000, solver="davidson"
+    )
+    assert energies[0] == pytest.approx(energy_ref, abs=1.0e-9)
+
+
+def test_dense_and_davidson_agree_for_h2o():
+    """H2O/STO-3G full FCI (441 determinants) exercises the real Davidson
+    iteration; both solvers must agree with each other and with PySCF."""
+    pytest.importorskip("pyscf")
+    _use_real_oqp_package()
+    from oqp.library.fci import solve_fci
+
+    atom = (
+        "O 0.000000 0.000000 0.000000;"
+        " H 0.000000 -0.757000 0.587000;"
+        " H 0.000000 0.757000 0.587000"
+    )
+    h1e, eri, nelec, ecore, energy_ref = _pyscf_reference(atom)
+
+    e_dense, _ = solve_fci(h1e, eri, nelec, ecore=ecore, max_det=5000, solver="dense")
+    e_davidson, _ = solve_fci(h1e, eri, nelec, ecore=ecore, max_det=5000, solver="davidson")
+
+    assert e_dense[0] == pytest.approx(energy_ref, abs=1.0e-9)
+    assert e_davidson[0] == pytest.approx(energy_ref, abs=1.0e-9)
+    assert e_davidson[0] == pytest.approx(e_dense[0], abs=1.0e-9)
+
+
+def test_davidson_multiroot_matches_dense():
+    pytest.importorskip("pyscf")
+    _use_real_oqp_package()
+    from oqp.library.fci import solve_fci
+
+    h1e, eri, nelec, ecore, _ = _pyscf_reference("H 0 0 0; H 0 0 0.740")
+    e_dense, _ = solve_fci(h1e, eri, nelec, ecore=ecore, nroot=3, max_det=1000, solver="dense")
+    e_dav, _ = solve_fci(h1e, eri, nelec, ecore=ecore, nroot=3, max_det=1000, solver="davidson")
+    for k in range(3):
+        assert e_dav[k] == pytest.approx(e_dense[k], abs=1.0e-9)
+
+
+def test_auto_solver_crosses_dense_memory_wall():
+    """With a tiny max_memory the dense path is rejected, but solver=auto must
+    fall back to Davidson (sparse) and still return the correct energy."""
+    pytest.importorskip("pyscf")
+    _use_real_oqp_package()
+    from oqp.library.fci import solve_fci
+
+    atom = (
+        "O 0.000000 0.000000 0.000000;"
+        " H 0.000000 -0.757000 0.587000;"
+        " H 0.000000 0.757000 0.587000"
+    )
+    h1e, eri, nelec, ecore, energy_ref = _pyscf_reference(atom)  # 441 dets, dense H ~1.5 MiB
+
+    # auto: dense would exceed 1 MiB, so it must use Davidson and succeed.
+    energies, _ = solve_fci(
+        h1e, eri, nelec, ecore=ecore, max_det=5000, max_memory=1, solver="auto"
+    )
+    assert energies[0] == pytest.approx(energy_ref, abs=1.0e-9)
+
+    # dense explicitly requested with the same tiny budget must be rejected.
+    with pytest.raises(ValueError, match="max_memory"):
+        solve_fci(h1e, eri, nelec, ecore=ecore, max_det=5000, max_memory=1, solver="dense")
+
+
+@pytest.mark.parametrize(
+    ("override", "bad_path"),
+    [
+        ({"fci": {"solver": "lanczos"}}, "fci.solver"),
+        ({"fci": {"davidson_maxiter": 0}}, "fci.davidson_maxiter"),
+    ],
+)
+def test_input_checker_rejects_invalid_solver_options(override, bad_path):
+    _use_real_oqp_package()
+    from oqp.utils.input_checker import check_input_values
+
+    config = {
+        "input": {
+            "system": "\nH 0 0 0\nH 0 0 0.740",
+            "basis": "sto-3g",
+            "method": "fci",
+            "runtype": "energy",
+        },
+        "guess": {"type": "hcore"},
+        "scf": {"type": "rhf", "multiplicity": 1},
+        "fci": {"nroot": 1, "max_det": 1000},
+        "properties": {"scf_prop": []},
+    }
+    for section, values in override.items():
+        config.setdefault(section, {}).update(values)
+
+    report = check_input_values(config, raise_error=False, emit=False)
+
+    assert not report.ok
+    assert any(d.path == bad_path for d in report.diagnostics), report.to_text()
