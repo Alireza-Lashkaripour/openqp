@@ -213,6 +213,27 @@ def dump_log(mol, title=None, section=None, info=None, must_print=False):
     
 """ % (method, functional, td_type, td_maxit, td_maxit_zv, td_mult, td_conv, td_nstate, td_zvconv, td_nvdav)
 
+    if section == 'fci':
+        loginfo += """
+   PyOQP method:                       fci
+   PyOQP reference:                    closed-shell RHF
+   PyOQP active electrons:             %14s
+   PyOQP active orbitals:              %14s
+   PyOQP frozen core orbitals:         %14s
+   PyOQP determinant count:            %14s
+""" % (
+            info['active_electrons'],
+            info['active_orbitals'],
+            info['frozen_core'],
+            info['determinants'],
+        )
+        if info.get('hf_energy') is not None:
+            loginfo += f"   PyOQP RHF reference energy:          {info['hf_energy']:<16.10f}\n"
+        loginfo += "\n   PyOQP FCI energies\n"
+        for n, energy in enumerate(info['energies']):
+            loginfo += f"   PyOQP state {n:<6} {energy:<16.10f}\n"
+        loginfo += "\n"
+
     if section == 'dftd':
         loginfo += """
    PyOQP dftd correction:                   %14s

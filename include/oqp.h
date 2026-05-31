@@ -203,6 +203,7 @@ void proj_dm_newbas(struct oqp_handle_t *inf);
 
 void hf_energy(struct oqp_handle_t *inf);
 void hf_gradient(struct oqp_handle_t *inf);
+void fci_ao_integrals(struct oqp_handle_t *inf);
 
 void tdhf_energy(struct oqp_handle_t *inf);
 void tdhf_z_vector(struct oqp_handle_t *inf);
@@ -225,4 +226,3 @@ void resp_charges(struct oqp_handle_t *inf);
 void mulliken(struct oqp_handle_t *inf);
 void mulliken_excited(struct oqp_handle_t *inf);
 void lowdin(struct oqp_handle_t *inf);
-

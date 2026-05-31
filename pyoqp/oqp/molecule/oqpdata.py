@@ -148,6 +148,16 @@ OQP_CONFIG_SCHEMA = {
         'z_solver': {'type': int, 'default': '0'},  # 0: CG, 1: GMRES
         'gmres_dim': {'type': int, 'default': '50'},  # Dimension for GMRES during Z-vector
     },
+    'fci': {
+        'nroot': {'type': int, 'default': '1'},
+        'active_electrons': {'type': int, 'default': '0'},
+        'active_orbitals': {'type': int, 'default': '0'},
+        'frozen_core': {'type': int, 'default': '0'},
+        'max_det': {'type': int, 'default': '50000'},
+        'eig_tol': {'type': float, 'default': '1.0e-10'},
+        'integral_backend': {'type': string, 'default': 'native'},
+        'integral_cutoff': {'type': float, 'default': '5.0e-11'},
+    },
     'properties': {
         'scf_prop': {'type': sarray, 'default': 'el_mom,mulliken'},
         'td_prop': {'type': bool, 'default': 'False'},
@@ -247,7 +257,7 @@ class OQPData:
     _scftypes = {"rhf": 1, "uhf": 2, "rohf": 3}
     _guesses = {"huckel": 1, "hcore": 2}
     _dft_switch = {False: 10, True: 20}
-    _methods = ('hf', 'tdhf')
+    _methods = ('hf', 'tdhf', 'fci')
     _td_types = ('rpa', 'tda', 'sf', 'mrsf')
     _rad_grid_types = {'mhl': 0, 'log3': 1, 'ta': 2, 'becke': 3}
     _diis_types = {'none': 1, 'cdiis': 2, 'ediis': 3, 'adiis': 4, 'vdiis': 5}

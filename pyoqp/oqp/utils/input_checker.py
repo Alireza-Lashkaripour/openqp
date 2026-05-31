@@ -17,9 +17,10 @@ SUPPORTED_RUNTYPES = {
 NOT_AVAILABLE_RUNTYPES = {"soc", "md"}
 ALL_RUNTYPES = SUPPORTED_RUNTYPES | NOT_AVAILABLE_RUNTYPES
 
-METHODS = {"hf", "tdhf"}
+METHODS = {"hf", "tdhf", "fci"}
 SCF_TYPES = {"rhf", "rohf", "uhf"}
 TDHF_TYPES = {"rpa", "tda", "sf", "mrsf", "umrsf"}
+FCI_INTEGRAL_BACKENDS = {"native"}
 GUESS_TYPES = {"huckel", "hcore", "json", "auto", "pyscf", "sad", "sap"}
 SCF_CONVERGERS = {"diis", "soscf", "trah"}
 OPTIONAL_SCF_CONVERGERS = SCF_CONVERGERS | {"none", ""}
@@ -37,7 +38,7 @@ INIT_SCF_TYPES = {"no", "rhf", "uhf", "rohf", "rks", "uks", "roks"}
 
 WIKI_HELP = {
     "input.runtype": "Use energy, grad, hess, nac, nacme, optimize, meci, mecp, mep, ts, irc, neb, prop, or data. soc and md are recognized but not implemented yet.",
-    "input.method": "Use method=hf for HF/DFT and method=tdhf for TDHF/TDDFT/SF/MRSF runs.",
+    "input.method": "Use method=hf for HF/DFT, method=tdhf for TDHF/TDDFT/SF/MRSF, or method=fci for small closed-shell RHF FCI energy runs.",
     "input.system": "Set system to an XYZ file path or inline coordinates with one atom per indented line.",
     "input.basis": "Set basis to a basis name, a comma-separated per-atom list, or library with tagged atoms and [input] library mappings.",
     "scf.type": "RHF is for multiplicity 1 closed-shell references. SF/MRSF needs an open-shell reference, usually ROHF.",
@@ -572,6 +573,118 @@ def _check_tdhf(config: dict[str, Any], report: CheckReport) -> None:
             value=nvdav,
             expected=f">= {nstate}",
             action="Increase nvdav to at least nstate.",
+        )
+
+
+def _check_fci(config: dict[str, Any], report: CheckReport) -> None:
+    method = _as_lower(_get(config, "input", "method", "hf"))
+    if method != "fci":
+        return
+
+    runtype = _as_lower(_get(config, "input", "runtype", "energy"))
+    scf_type = _as_lower(_get(config, "scf", "type", "rhf"))
+    multiplicity = _get(config, "scf", "multiplicity", 1)
+    functional = _get(config, "input", "functional", "")
+    nroot = _get(config, "fci", "nroot", 1)
+    active_electrons = _get(config, "fci", "active_electrons", 0)
+    active_orbitals = _get(config, "fci", "active_orbitals", 0)
+    frozen_core = _get(config, "fci", "frozen_core", 0)
+    max_det = _get(config, "fci", "max_det", 50000)
+    eig_tol = _get(config, "fci", "eig_tol", 1.0e-10)
+    integral_backend = _as_lower(_get(config, "fci", "integral_backend", "native"))
+    integral_cutoff = _get(config, "fci", "integral_cutoff", 5.0e-11)
+
+    if runtype != "energy":
+        report.add(
+            "ERROR",
+            "input.runtype",
+            "FCI is currently implemented only for energy calculations.",
+            value=runtype,
+            expected="energy",
+            action="Set [input] runtype=energy.",
+        )
+
+    if scf_type != "rhf" or multiplicity != 1:
+        report.add(
+            "ERROR",
+            "scf.type",
+            "FCI MVP requires a closed-shell RHF reference.",
+            value=f"{scf_type}/{multiplicity}",
+            expected="scf.type=rhf and scf.multiplicity=1",
+            action="Use an RHF singlet reference or extend the FCI implementation.",
+        )
+
+    if functional:
+        report.add(
+            "ERROR",
+            "input.functional",
+            "FCI requires HF one- and two-electron integrals.",
+            value=functional,
+            action="Unset [input] functional for method=fci.",
+        )
+
+    if nroot < 1:
+        report.add(
+            "ERROR",
+            "fci.nroot",
+            "FCI must request at least one root.",
+            value=nroot,
+            expected=">= 1",
+            action="Set [fci] nroot=1 or higher.",
+        )
+
+    if min(active_electrons, active_orbitals, frozen_core) < 0:
+        report.add(
+            "ERROR",
+            "fci.active_space",
+            "FCI active-space counts cannot be negative.",
+            value={
+                "active_electrons": active_electrons,
+                "active_orbitals": active_orbitals,
+                "frozen_core": frozen_core,
+            },
+            expected="non-negative integers",
+            action="Use 0 for the default full-space setting or a positive count.",
+        )
+
+    if max_det < 1:
+        report.add(
+            "ERROR",
+            "fci.max_det",
+            "FCI determinant limit must be positive.",
+            value=max_det,
+            expected=">= 1",
+            action="Increase [fci] max_det.",
+        )
+
+    if eig_tol <= 0:
+        report.add(
+            "ERROR",
+            "fci.eig_tol",
+            "FCI eigensolver tolerance must be positive.",
+            value=eig_tol,
+            expected="> 0",
+            action="Set [fci] eig_tol to a positive threshold.",
+        )
+
+    if integral_cutoff < 0:
+        report.add(
+            "ERROR",
+            "fci.integral_cutoff",
+            "FCI integral cutoff cannot be negative.",
+            value=integral_cutoff,
+            expected=">= 0",
+            action="Set [fci] integral_cutoff to zero or a positive threshold.",
+        )
+
+    if integral_backend not in FCI_INTEGRAL_BACKENDS:
+        report.add(
+            "ERROR",
+            "fci.integral_backend",
+            "Unknown FCI integral backend.",
+            value=integral_backend,
+            expected=", ".join(sorted(FCI_INTEGRAL_BACKENDS)),
+            action="Use [fci] integral_backend=native.",
         )
 
 
@@ -1243,7 +1356,7 @@ def check_input_values(
             "Unknown electronic structure method.",
             value=method,
             expected=", ".join(sorted(METHODS)),
-            action="Choose hf or tdhf.",
+            action="Choose hf, tdhf, or fci.",
             wiki=WIKI_HELP["input.method"],
         )
 
@@ -1252,6 +1365,7 @@ def check_input_values(
     _check_guess(config, report)
     _check_scf(config, report)
     _check_tdhf(config, report)
+    _check_fci(config, report)
     _check_properties(config, report)
     _check_requested_states(config, report)
     _check_runtype(config, report)

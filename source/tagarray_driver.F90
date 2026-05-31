@@ -21,6 +21,7 @@ module oqp_tagarray_driver
   character(len=*), parameter, public :: OQP_SM = OQP_prefix // "SM"
   character(len=*), parameter, public :: OQP_TM = OQP_prefix // "TM"
   character(len=*), parameter, public :: OQP_WAO = OQP_prefix // "WAO"
+  character(len=*), parameter, public :: OQP_AO_ERI = OQP_prefix // "AO_ERI"
   character(len=*), parameter, public :: OQP_td_abxc = OQP_prefix // "td_abxc"
   character(len=*), parameter, public :: OQP_td_bvec_mo = OQP_prefix // "td_bvec_mo"
   character(len=*), parameter, public :: OQP_td_mrsf_density = OQP_prefix // "td_mrsf_density"
@@ -58,6 +59,7 @@ module oqp_tagarray_driver
   character(len=*), parameter, public :: OQP_SM_comment = "triangle Overlap matrix"
   character(len=*), parameter, public :: OQP_TM_comment = "triangle Kinetic-Energy matrix"
   character(len=*), parameter, public :: OQP_WAO_comment = "??? WAO ???"
+  character(len=*), parameter, public :: OQP_AO_ERI_comment = "Dense AO two-electron integrals in chemists notation"
   character(len=*), parameter, public :: OQP_td_abxc_comment = "??? td_abxc ???"
   character(len=*), parameter, public :: OQP_td_bvec_mo_comment = "??? td_bvec_mo ???"
   character(len=*), parameter, public :: OQP_td_mrsf_density_comment = "??? td_mrsf_density ???"
@@ -75,11 +77,11 @@ module oqp_tagarray_driver
   character(len=*), parameter, public :: OQP_td_states_phase_comment = OQP_prefix // "Bvecs phase sign with respect to Bvec_old"
   character(len=*), parameter, public :: OQP_td_states_overlap_comment = OQP_prefix // "Bvecs phase sign with respect to Bvec_old"
   character(len=*), parameter, public :: OQP_xyz_oldcomment = OQP_prefix // "saved geo from previous step"
-  character(len=*), parameter, public :: all_tags(32) = (/ character(len=80) :: &
+  character(len=*), parameter, public :: all_tags(33) = (/ character(len=80) :: &
     OQP_DM_A, OQP_DM_B, OQP_FOCK_A, OQP_FOCK_B, OQP_E_MO_A, OQP_E_MO_B, &
     OQP_VEC_MO_A, OQP_VEC_MO_B, OQP_Hcore, OQP_SM, OQP_TM, OQP_WAO, &
-    OQP_td_abxc, OQP_td_bvec_mo, OQP_td_mrsf_density, OQP_td_p, OQP_td_t, &
-    OQP_log_filename, OQP_basis_filename, OQP_hbasis_filename, &
+    OQP_AO_ERI, OQP_td_abxc, OQP_td_bvec_mo, OQP_td_mrsf_density, OQP_td_p, &
+    OQP_td_t, OQP_log_filename, OQP_basis_filename, OQP_hbasis_filename, &
     OQP_xyz_old, OQP_overlap_mo, OQP_overlap_ao, OQP_E_MO_A_old, OQP_E_MO_B_old, &
     OQP_VEC_MO_A_old, OQP_VEC_MO_B_old, OQP_td_bvec_mo_old, OQP_td_energies_old, &
     OQP_nac, OQP_td_states_phase, OQP_td_states_overlap /)

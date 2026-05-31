@@ -336,7 +336,7 @@ class SinglePoint(Calculator):
 
     def energy(self, do_init_scf=True, restore_scf_converger=True):
         # check method
-        if self.method not in ['hf', 'tdhf']:
+        if self.method not in ['hf', 'tdhf', 'fci']:
             raise ValueError(f'Unknown method type {self.method}')
 
         target_converger = self.mol.config['scf']['converger_type']
@@ -344,12 +344,14 @@ class SinglePoint(Calculator):
             # compute reference
             ref_energy = self.reference(do_init_scf=do_init_scf)
 
-            # ixcore
-            self.ixcore_shift()
-
             # compute excitations
             if self.method == 'tdhf':
+                # ixcore is a TDHF/XAS orbital shift and is not used by FCI.
+                self.ixcore_shift()
                 energies = self.excitation(ref_energy)
+            elif self.method == 'fci':
+                from oqp.library.fci import FCI
+                energies = FCI(self.mol).energy(ref_energy)
             else:
                 energies = ref_energy
         finally:
